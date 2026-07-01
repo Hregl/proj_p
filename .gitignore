@@ -31,3 +31,10 @@ unified_detect.png
 synth_view_*.png
 synth_debug.png
 
+
+# Stereo test outputs
+stereo_left_*.png
+stereo_right_*.png
+stereo_rectified_*.png
+stereo_disparity.png
+
