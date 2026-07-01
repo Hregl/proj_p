@@ -6,11 +6,6 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Debug output images
-mask.png
-contour.png
-circle.png
-
 # IDE
 .vscode/
 .idea/
@@ -19,32 +14,13 @@ circle.png
 Thumbs.db
 .DS_Store
 
-# Generated marker sheets
-aruco_sheet.png
-aruco_sheet_16.png
-aruco_detected.png
-charuco_board.png
-pose_test.png
-unified_detect.png
-
-# Synthetic test views
-synth_view_*.png
-synth_debug.png
-
-
-# Stereo test outputs
-stereo_left_*.png
-stereo_right_*.png
-stereo_rectified_*.png
-stereo_disparity.png
-
-# Pipeline outputs
+# Generated output (debug images, test outputs, pipeline results)
 output/
 *.npz
 *.json
 !config.example.json
 
-# Data files (keep structure, ignore photos)
+# Data directories (keep structure, ignore photos)
 data/calibration/
 data/sfm/
 data/inference/

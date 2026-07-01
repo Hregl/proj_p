@@ -210,9 +210,11 @@ class SLSMarkerDetector:
             for c in clean_circles:
                 cv2.ellipse(circle_img, c, 255, 1)
 
-            cv2.imwrite("mask.png", mask)
-            cv2.imwrite("contour.png", contour_img)
-            cv2.imwrite("circle.png", circle_img)
+            import os as _os
+            _os.makedirs("output", exist_ok=True)
+            cv2.imwrite("output/mask.png", mask)
+            cv2.imwrite("output/contour.png", contour_img)
+            cv2.imwrite("output/circle.png", circle_img)
 
     # ------------------------------------------------------------------
     # Subpixel refinement (two overloads)

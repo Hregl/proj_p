@@ -9,12 +9,16 @@ from sls_calib import CodedMarkerDetector, generate_marker_sheet
 
 def main():
     # Generate a synthetic marker sheet and detect on it
+    from pathlib import Path
+    out_dir = Path("output")
+    out_dir.mkdir(exist_ok=True)
+
     print("Generating synthetic test image...")
     sheet = generate_marker_sheet("4x4_50", pixel_size=200, ids=list(range(8)))
-    cv2.imwrite("aruco_sheet.png", sheet)
-    print("Wrote aruco_sheet.png (8 markers, 4x2 grid)")
+    cv2.imwrite(str(out_dir / "aruco_sheet.png"), sheet)
+    print(f"Wrote {out_dir / 'aruco_sheet.png'} (8 markers, 4x2 grid)")
 
-    img = cv2.imread("aruco_sheet.png")
+    img = cv2.imread(str(out_dir / "aruco_sheet.png"))
     detector = CodedMarkerDetector(dict_name="4x4_50", refine_corners=True)
     markers, err = detector.detect(img, debug=True)
 
@@ -29,8 +33,8 @@ def main():
 
     # Visualize and save
     annotated = CodedMarkerDetector.draw(img, markers)
-    cv2.imwrite("aruco_detected.png", annotated)
-    print("\nWrote aruco_detected.png (detection visualization)")
+    cv2.imwrite(str(out_dir / "aruco_detected.png"), annotated)
+    print(f"\nWrote {out_dir / 'aruco_detected.png'} (detection visualization)")
 
     # Verify all 8 markers detected
     detected_ids = {m[0] for m in markers}
