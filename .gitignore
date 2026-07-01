@@ -18,3 +18,16 @@ circle.png
 # OS
 Thumbs.db
 .DS_Store
+
+# Generated marker sheets
+aruco_sheet.png
+aruco_sheet_16.png
+aruco_detected.png
+charuco_board.png
+pose_test.png
+unified_detect.png
+
+# Synthetic test views
+synth_view_*.png
+synth_debug.png
+

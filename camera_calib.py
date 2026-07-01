@@ -258,7 +258,7 @@ class Calibrator:
         for img in images:
             if only_selected and not img.selected:
                 continue
-            markers, err = self.detector.detect_markers(
+            markers, err = self.detector.detectMarkers(
                 img.image, smooth=smooth, debug=debug
             )
             img.circles = markers
