@@ -345,30 +345,5 @@ class SLSMarkerDetector:
 
 
 # ----------------------------------------------------------------------
-# Quick manual test
+# (Test / demo code has been extracted to tests/test_marker_detector.py)
 # ----------------------------------------------------------------------
-if __name__ == "__main__":
-    import sys
-
-    detector = SLSMarkerDetector()
-
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-    else:
-        # Fallback: try a common test image
-        path = "test.png"
-        print(f"Usage: python marker_detector.py <image_path>")
-        print(f"No path given; trying '{path}' …")
-
-    img = cv2.imread(path)
-    if img is None:
-        print(f"Error: could not read image '{path}'")
-        sys.exit(1)
-
-    markers, err = detector.detectMarkers(img, smooth=False, debug=True)
-    if err:
-        print(f"Error: {err}")
-    else:
-        print(f"Found {len(markers)} marker(s):")
-        for i, ((cx, cy), area) in enumerate(markers):
-            print(f"  [{i}] center=({cx:.3f}, {cy:.3f})  area={area:.3f}")

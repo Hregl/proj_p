@@ -38,3 +38,14 @@ stereo_right_*.png
 stereo_rectified_*.png
 stereo_disparity.png
 
+# Pipeline outputs
+output/
+*.npz
+*.json
+!config.example.json
+
+# Data files (keep structure, ignore photos)
+data/calibration/
+data/sfm/
+data/inference/
+data/markers/

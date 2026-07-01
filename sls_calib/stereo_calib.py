@@ -39,8 +39,8 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from marker_detector import SLSMarkerDetector
-from camera_calib import CalibImage, Calibrator
+from .marker_detector import SLSMarkerDetector
+from .camera_calib import CalibImage, Calibrator
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -629,7 +629,7 @@ class StereoCalibrator:
 
     def _get_charuco_board(self) -> cv2.aruco.CharucoBoard:
         if self._charuco_board is None:
-            from coded_marker import CodedMarkerDetector
+            from sls_calib.coded_marker import CodedMarkerDetector
             dict_id = CodedMarkerDetector._DICT_MAP[self.aruco_dict_name]
             aruco_dict = cv2.aruco.getPredefinedDictionary(dict_id)
             sx, sy = self.pattern_size
@@ -640,7 +640,7 @@ class StereoCalibrator:
 
     def _get_aruco_detector(self) -> cv2.aruco.ArucoDetector:
         if self._aruco_detector is None:
-            from coded_marker import CodedMarkerDetector
+            from sls_calib.coded_marker import CodedMarkerDetector
             dict_id = CodedMarkerDetector._DICT_MAP[self.aruco_dict_name]
             aruco_dict = cv2.aruco.getPredefinedDictionary(dict_id)
             params = cv2.aruco.DetectorParameters()
@@ -915,92 +915,5 @@ def _generate_synthetic_stereo_data(
 
 
 # ===================================================================
-# Main
+# (Test code has been extracted to tests/test_stereo_calib.py)
 # ===================================================================
-if __name__ == "__main__":
-    print("=" * 60)
-    print("Stereo Calibration — Synthetic Data Test")
-    print("=" * 60)
-
-    # Generate synthetic data with ground truth
-    print("\n[1] Generating synthetic stereo pairs …")
-    (
-        left_imgs, right_imgs,
-        left_corners, right_corners,
-        obj_pts,
-        K_left, dist_left, K_right, dist_right,
-        R_gt, T_gt,
-    ) = _generate_synthetic_stereo_data(n_pairs=15, noise_px=0.3)
-    n = len(left_imgs)
-    print(f"  Generated {n} valid stereo pairs "
-          f"({left_imgs[0].shape[1]}x{left_imgs[0].shape[0]})")
-
-    for i, (imgL, imgR) in enumerate(zip(left_imgs, right_imgs)):
-        cv2.imwrite(f"stereo_left_{i}.png", imgL)
-        cv2.imwrite(f"stereo_right_{i}.png", imgR)
-
-    # Stereo calibration (bypasses pattern detection, injects corners)
-    print("\n[2] Running stereo calibration (known corners) …")
-    calib = StereoCalibrator(pattern_type="chessboard",
-                             pattern_size=(9, 6),
-                             square_size=0.025)
-
-    sp = calib.calibrate_stereo_from_corners(
-        left_corners, right_corners, obj_pts,
-        K_left, dist_left,
-        K_right, dist_right,
-        image_size=(1280, 720),
-        fix_intrinsics=True,
-        debug=True,
-    )
-
-    if sp is None:
-        print("Calibration failed.")
-        exit(1)
-
-    # Accuracy vs ground truth
-    print("\n[3] Accuracy vs ground truth:")
-
-    R_err_mat = sp.R @ R_gt.T
-    angle_err = math.acos(
-        np.clip((np.trace(R_err_mat) - 1) / 2, -1.0, 1.0)
-    )
-    print(f"  Rotation error:      {np.rad2deg(angle_err):.5f} deg")
-
-    t_gt_norm = np.linalg.norm(T_gt)
-    t_est_norm = np.linalg.norm(sp.T)
-    baseline_err_pct = abs(t_est_norm - t_gt_norm) / t_gt_norm * 100
-    print(f"  Baseline:  GT = {t_gt_norm*1000:.1f} mm  "
-          f"Est = {t_est_norm*1000:.1f} mm  "
-          f"({baseline_err_pct:.3f}% error)")
-
-    t_gt_unit = T_gt.ravel() / t_gt_norm
-    t_est_unit = sp.T.ravel() / t_est_norm
-    dir_err = math.acos(
-        np.clip(abs(np.dot(t_gt_unit, t_est_unit)), -1.0, 1.0)
-    )
-    print(f"  Direction error:     {np.rad2deg(dir_err):.5f} deg"
-          f"{' (sign convention)' if np.dot(t_gt_unit, t_est_unit) < 0 else ''}")
-    print(f"  Reprojection RMS:    {sp.rms_error:.5f} px")
-
-    # Stereo rectification visual check
-    print("\n[4] Rectification visual check …")
-    rectL, rectR = calib.rectify(left_imgs[0], right_imgs[0])
-    cv2.imwrite("stereo_rectified_L.png", rectL)
-    cv2.imwrite("stereo_rectified_R.png", rectR)
-
-    comparison = np.hstack([rectL, rectR])
-    for y in range(0, comparison.shape[0], 60):
-        cv2.line(comparison, (0, y), (comparison.shape[1], y), (0, 255, 0), 1)
-    cv2.imwrite("stereo_rectified_comparison.png", comparison)
-    print("  Wrote stereo_rectified_comparison.png")
-
-    # Disparity
-    print("\n[5] Disparity map …")
-    disparity = calib.compute_disparity(left_imgs[0], right_imgs[0])
-    disp_viz = np.clip(disparity / max(disparity.max(), 1) * 255, 0, 255).astype(np.uint8)
-    cv2.imwrite("stereo_disparity.png", disp_viz)
-    print("  Wrote stereo_disparity.png")
-
-    print()
-    print(calib.summary())

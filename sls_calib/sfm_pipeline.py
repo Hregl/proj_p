@@ -44,8 +44,8 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 
-from coded_marker import CodedMarkerDetector
-from marker_detector import SLSMarkerDetector
+from .coded_marker import CodedMarkerDetector
+from .marker_detector import SLSMarkerDetector
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -1341,96 +1341,7 @@ def _inject_projections(
 # ===================================================================
 # Main — synthetic data test
 # ===================================================================
-if __name__ == "__main__":
-    print("=" * 60)
-    print("SfM Pipeline — Synthetic Data Test")
-    print("(GT projections + noise → SfM reconstruction)")
-    print("=" * 60)
 
-    # --- Generate scene ----------------------------------------------
-    print("\n[1] Generating synthetic scene …")
-    images, K, dist, gt_pts, gt_poses = _generate_synthetic_scene(
-        n_markers=15, n_views=6, noise_px=0.0,
-    )
-    print(f"  {len(gt_pts)} markers, {len(images)} views, "
-          f"{images[0].shape[1]}×{images[0].shape[0]} px")
-    for i, img in enumerate(images):
-        cv2.imwrite(f"synth_view_{i}.png", img)
-
-    # --- Run SfM ----------------------------------------------------
-    print("\n[2] Running SfM pipeline …")
-    sfm = MultiViewSfM(K, dist, aruco_dict="4x4_50")
-
-    # Add views with empty images (we'll inject projections manually)
-    for vi, img in enumerate(images):
-        v = View(f"view_{vi}", img)
-        sfm.views.append(v)
-    print(f"  Added {len(sfm.views)} empty views")
-
-    # Inject GT projections (no noise = perfect reconstruction test)
-    _inject_projections(sfm, gt_pts, gt_poses, noise_px=0.5)
-    print(f"  Injected projections (σ=0.5 px noise)")
-    print(f"  Total markers: {sum(len(v.centers) for v in sfm.views)}")
-
-    # Initialise
-    if not sfm.initialize():
-        print("Initialisation failed — aborting.")
-        exit(1)
-    print()
-
-    # Register all
-    n_new = sfm.register_all()
-    print(f"\n  Registered {n_new} additional view(s)")
-    n_reg = sum(1 for v in sfm.views if v.registered)
-    print(f"  Total registered: {n_reg}/{len(sfm.views)} views")
-
-    # BA
-    err = sfm.bundle_adjust(iterations=5, use_sparse_lm=True, verbose=True)
-    print()
-
-    # Align to ground — provide GT measurements for metrical scale
-    ground_ids = list(range(8))  # first 8 = ground markers
-    ground_gt = [gt_pts[i] for i in ground_ids]
-    sfm.align_to_ground(ground_ids, ground_plane_points=ground_gt)
-
-    # Aircraft pose
-    ac_ids = list(range(8, 15))
-    R_ac, t_ac = sfm.get_rigid_transform(ac_ids)
-
-    print()
-    print(sfm.summary())
-
-    # --- Compare with ground truth ----------------------------------
-    print("\n[3] Reconstruction accuracy vs GT:")
-    errors = []
-    for mid in sorted(gt_pts.keys()):
-        if mid in sfm._points3d:
-            gt = np.array(gt_pts[mid])
-            rec = np.array(sfm._points3d[mid])
-            dist_err = np.linalg.norm(gt - rec) * 1000  # mm
-            errors.append(dist_err)
-            marker = "[G]" if mid < 8 else "[A]"
-            print(f"  {marker} ID={mid:2d}:  "
-                  f"GT=({gt[0]:+.3f},{gt[1]:+.3f},{gt[2]:+.3f})  "
-                  f"err={dist_err:.2f} mm")
-
-    if errors:
-        print(f"\n  Mean error: {np.mean(errors):.2f} mm  "
-              f"Median: {np.median(errors):.2f} mm  "
-              f"Max: {np.max(errors):.2f} mm")
-
-    # --- Camera pose accuracy ---------------------------------------
-    print("\n[4] Camera pose accuracy:")
-    for vi, view in enumerate(sfm.views):
-        if not view.registered:
-            print(f"  View {vi}: NOT REGISTERED")
-            continue
-        gt_R, gt_t = gt_poses[vi]
-        # Compare rotation as angle difference
-        R_diff = view.R @ gt_R.T
-        angle_err = math.acos(
-            np.clip((np.trace(R_diff) - 1) / 2, -1.0, 1.0)
-        )
-        t_err = np.linalg.norm(view.t.ravel() - gt_t.ravel()) * 1000
-        print(f"  View {vi}: ΔR={np.rad2deg(angle_err):.2f}°  "
-              f"Δt={t_err:.2f} mm")
+# ===================================================================
+# (Test code has been extracted to tests/test_sfm_pipeline.py)
+# ===================================================================

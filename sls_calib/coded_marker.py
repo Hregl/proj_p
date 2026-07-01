@@ -397,7 +397,7 @@ class UnifiedMarkerTracker:
             refine_corners=refine_corners,
         )
         # Lazy-import SLSMarkerDetector to avoid circular dependency
-        from marker_detector import SLSMarkerDetector
+        from sls_calib.marker_detector import SLSMarkerDetector
         self._circle_detector = SLSMarkerDetector()
 
     # ------------------------------------------------------------------
@@ -564,41 +564,6 @@ def generate_charuco_board(
 
 
 # ===================================================================
-# Quick test
+# (Test / demo code has been extracted to tests/test_coded_marker.py
+#  and tools/generate_markers.py)
 # ===================================================================
-if __name__ == "__main__":
-    import sys
-
-    detector = CodedMarkerDetector(dict_name="4x4_50", refine_corners=True)
-
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-    else:
-        # Generate a synthetic test image with a few markers
-        print("No image path given — generating synthetic test image.")
-        sheet = generate_marker_sheet("4x4_50", pixel_size=200, ids=list(range(8)))
-        cv2.imwrite("aruco_sheet.png", sheet)
-        print("Wrote aruco_sheet.png (8 markers, 4×2 grid).")
-        path = "aruco_sheet.png"
-        print(f"Testing on '{path}' …")
-
-    img = cv2.imread(path)
-    if img is None:
-        print(f"Error: could not read '{path}'")
-        sys.exit(1)
-
-    markers, err = detector.detect(img, debug=True)
-    if err:
-        print(f"Error: {err}")
-    else:
-        print(f"\nFound {len(markers)} ArUco marker(s):")
-        for m_id, corners, center, side in markers:
-            print(
-                f"  ID={m_id:3d}  center=({center[0]:7.1f}, {center[1]:7.1f})  "
-                f"side={side:.1f}px"
-            )
-
-    # Visualize
-    annotated = CodedMarkerDetector.draw(img, markers)
-    cv2.imwrite("aruco_detected.png", annotated)
-    print("\nWrote aruco_detected.png (detection visualization).")

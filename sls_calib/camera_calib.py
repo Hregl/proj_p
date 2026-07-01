@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from marker_detector import SLSMarkerDetector, Marker
+from .marker_detector import SLSMarkerDetector, Marker
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -454,75 +454,7 @@ class Calibrator:
 # Test harness
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    import sys
-
-    path = sys.argv[1] if len(sys.argv) > 1 else "p1.png"
-    circle_interval = float(sys.argv[2]) if len(sys.argv) > 2 else 35.0
-
-    print(f"加载图像: {path}")
-    img = cv2.imread(path)
-    if img is None:
-        print(f"错误: 无法读取图像 '{path}'")
-        sys.exit(1)
-    print(f"图像尺寸: {img.shape[1]} x {img.shape[0]}")
-
-    # Build a single-image list for testing
-    calib_img = CalibImage(name="test", image=img.copy(), selected=True)
-    images = [calib_img]
-
-    calibrator = Calibrator()
-
-    # --- detect markers ---
-    print("\n--- 检测标志点 ---")
-    err = calibrator.extract_circles(images, only_selected=False,
-                                     smooth=True, debug=True)
-    if err:
-        print(f"错误: {err}")
-        sys.exit(1)
-    print(f"检测到 {len(calib_img.circles)} 个圆")
-
-    # --- print display circles (first 5) ---
-    print("\n--- 显示坐标 (前5个) ---")
-    for i, dc in enumerate(calib_img.display_circles[:5]):
-        print(f"  [{i}] ndc=({dc[0]:.4f}, {dc[1]:.4f})  large={dc[2]}")
-
-    # --- grid assignment ---
-    print(f"\n--- 网格分配 (间距={circle_interval}) ---")
-    err = calib_img.find_circle_indices(circle_interval, debug=True,
-                                         large_circle_threshold=0.78)
-    if err:
-        print(f"错误: {err}")
-        sys.exit(1)
-
-    # --- print populated grid ---
-    print("\n--- 圆点阵列 (11×9 grid) ---")
-    valid_count = 0
-    for gy in range(9):
-        line = ""
-        for gx in range(11):
-            _, _, ok, _ = calib_img.circle_array[gy * 11 + gx]
-            if ok:
-                valid_count += 1
-                line += "● "
-            else:
-                line += "· "
-        print(line)
-    print(f"\n有效圆点: {valid_count}/99")
-
-    # --- show which are the 5 large circles in grid coords ---
-    print("\n--- 五大圆网格坐标 ---")
-    for i, ((cx, cy), area) in enumerate(calib_img.circles):
-        if area / max(a for _, a in calib_img.circles) > 0.5:
-            # Find grid index
-            for gi, ((px, py), (wx, wy, _), ok, _) in enumerate(calib_img.circle_array):
-                if ok and abs(px - cx) < 2 and abs(py - cy) < 2:
-                    print(f"  大圆 ({cx:.1f}, {cy:.1f}) → grid({gi % 11}, {gi // 11})  "
-                          f"world=({wx:.1f}, {wy:.1f})")
-                    break
-
-    print("\n完成。")
-
-
-if __name__ == "__main__":
-    main()
+# ---------------------------------------------------------------------------
+# (Test / demo code has been extracted to tests/test_camera_calib.py
+#  and tools/run_calibration.py)
+# ---------------------------------------------------------------------------
