@@ -1,11 +1,10 @@
 """
-Coded Marker Detector — ArUco marker detection and ID recognition.
+编码标志点检测器 —— ArUco 标志点检测与 ID 识别。
 
-Extends the marker pipeline with coded (ArUco) markers that carry
-unique IDs, enabling automatic cross-image correspondence for
-multi-view 3D reconstruction and PnP pose estimation.
+扩展标志点流水线，支持携带唯一 ID 的编码（ArUco）标志点，
+从而实现多视图三维重建和 PnP 姿态估计中的自动跨图像对应。
 
-Works alongside marker_detector.py (uncoded circular dots).
+与 marker_detector.py（非编码圆形点）协同工作。
 """
 
 import math
@@ -16,13 +15,13 @@ import cv2
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Type aliases
+# 类型别名
 # ---------------------------------------------------------------------------
 
-# An ArUco marker: (marker_id, corners(4,2), center(x,y), side_length_px)
+# 一个 ArUco 标志点：(marker_id, corners(4,2), center(x,y), side_length_px)
 ArUcoMarker = Tuple[int, np.ndarray, Tuple[float, float], float]
 
-# For unified detection — either coded or uncoded
+# 统一检测结果 —— 编码或非编码均可
 CodedResult = Tuple[int, Tuple[float, float], str]
 # (marker_id_or_-1, (cx, cy), "aruco" | "circle")
 
@@ -33,19 +32,19 @@ CodedResult = Tuple[int, Tuple[float, float], str]
 
 class CodedMarkerDetector:
     """
-    Detects ArUco coded markers with subpixel corner refinement.
+    检测 ArUco 编码标志点，并进行亚像素角点精化。
 
-    Each detected marker carries a unique integer ID, which solves
-    the cross-image correspondence problem for multi-view reconstruction.
+    每个检测到的标志点携带一个唯一的整数 ID，解决了
+    多视图重建中的跨图像对应问题。
 
-    Dictionary choice matters:
-    - DICT_4X4_50  :  4×4 bits,  50 IDs  — smallest, good for tiny models
-    - DICT_5X5_50  :  5×5 bits,  50 IDs  — good balance
-    - DICT_6X6_250 :  6×6 bits, 250 IDs  — more IDs, needs larger tag
-    - DICT_7X7_1000:  7×7 bits, 1000 IDs — most IDs, largest tag
+    字典选择很重要：
+    - DICT_4X4_50  :  4×4 位，  50 个 ID  — 最小，适合微型模型
+    - DICT_5X5_50  :  5×5 位，  50 个 ID  — 折中选择
+    - DICT_6X6_250 :  6×6 位， 250 个 ID  — 更多 ID，需要更大的标签
+    - DICT_7X7_1000:  7×7 位， 1000 个 ID — 最多 ID，标签最大
     """
 
-    # Map human-readable names to OpenCV dict constants
+    # 将人类可读的名称映射到 OpenCV 字典常量
     _DICT_MAP: Dict[str, int] = {
         "4x4_50":   cv2.aruco.DICT_4X4_50,
         "4x4_100":  cv2.aruco.DICT_4X4_100,
@@ -73,20 +72,20 @@ class CodedMarkerDetector:
     ) -> None:
         """
         Args:
-            dict_name: One of the keys in ``_DICT_MAP``, e.g. ``"4x4_50"``.
-            refine_corners: Apply ``cv2.cornerSubPix`` to detected corners.
-            corner_refine_win: Half-window size for subpixel refinement.
+            dict_name: ``_DICT_MAP`` 中的键之一，如 ``"4x4_50"``。
+            refine_corners: 对检测到的角点应用 ``cv2.cornerSubPix`` 精化。
+            corner_refine_win: 亚像素精化的半窗口大小。
         """
         dict_id = self._DICT_MAP.get(dict_name)
         if dict_id is None:
             raise ValueError(
-                f"Unknown dictionary '{dict_name}'. "
-                f"Choose from: {list(self._DICT_MAP.keys())}"
+                f"未知字典 '{dict_name}'。"
+                f"可选值： {list(self._DICT_MAP.keys())}"
             )
         aruco_dict = cv2.aruco.getPredefinedDictionary(dict_id)
         detector_params = cv2.aruco.DetectorParameters()
         self._aruco_detector = cv2.aruco.ArucoDetector(aruco_dict, detector_params)
-        self._aruco_dict = aruco_dict  # kept for marker generation
+        self._aruco_dict = aruco_dict  # 保留用于生成标志点
         self._refine_corners = refine_corners
         self._refine_win = (corner_refine_win, corner_refine_win)
         self._refine_criteria = (
@@ -94,11 +93,11 @@ class CodedMarkerDetector:
             30,
             0.001,
         )
-        # Store for reference
+        # 存储以供参考
         self.dict_name = dict_name
 
     # ------------------------------------------------------------------
-    # Public API
+    # 公开接口
     # ------------------------------------------------------------------
 
     def detect(
@@ -109,17 +108,17 @@ class CodedMarkerDetector:
         debug: bool = False,
     ) -> Tuple[List[ArUcoMarker], str]:
         """
-        Detect ArUco markers in an image.
+        在图像中检测 ArUco 标志点。
 
         Args:
-            image: BGR or grayscale image.
-            camera_matrix: 3×3 intrinsics (for corner refinement).
-            dist_coeffs:  Distortion coefficients (for corner refinement).
-            debug: Print timing info.
+            image: BGR 或灰度图像。
+            camera_matrix: 3×3 内参矩阵（用于角点精化）。
+            dist_coeffs:  畸变系数（用于角点精化）。
+            debug: 是否打印计时信息。
 
         Returns:
-            (markers, error_info).  Each marker is
-            ``(id, corners_4x2, (cx, cy), side_length_px)``.
+            (markers, error_info)。每个标志点为
+            ``(id, corners_4x2, (cx, cy), side_length_px)``。
         """
         markers: List[ArUcoMarker] = []
 
@@ -130,7 +129,7 @@ class CodedMarkerDetector:
         error_info = ""
 
         try:
-            # Convert to grayscale for detection
+            # 转换为灰度图以便检测
             if image.ndim == 3 and image.shape[2] == 3:
                 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             else:
@@ -141,12 +140,12 @@ class CodedMarkerDetector:
             if ids is None or len(ids) == 0:
                 elapsed = (time.perf_counter() - t0) * 1000.0
                 if debug:
-                    print(f"ArUco detect: {elapsed:.3f}ms — 0 markers found")
+                    print(f"ArUco detect: {elapsed:.3f}ms — 0 个标志点")
                 return markers, error_info
 
             t_detect = time.perf_counter()
 
-            # Subpixel corner refinement
+            # 亚像素角点精化
             if self._refine_corners:
                 refined_corners = []
                 for c in corners:
@@ -159,12 +158,12 @@ class CodedMarkerDetector:
 
             t_subpixel = time.perf_counter()
 
-            # Build marker list
+            # 构建标志点列表
             for i, marker_id in enumerate(ids.flatten()):
                 c = corners[i].reshape(4, 2)
                 cx = float(np.mean(c[:, 0]))
                 cy = float(np.mean(c[:, 1]))
-                # Approximate side length from the quadrilateral perimeter
+                # 由四边形周长近似得到边长
                 side = float(cv2.arcLength(c, True)) / 4.0
                 markers.append((int(marker_id), c, (cx, cy), side))
 
@@ -184,7 +183,7 @@ class CodedMarkerDetector:
         return markers, error_info
 
     # ------------------------------------------------------------------
-    # Pose estimation (single marker)
+    # 姿态估计（单个标志点）
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -195,21 +194,21 @@ class CodedMarkerDetector:
         dist_coeffs: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Estimate the 6-DOF pose of a single ArUco marker.
+        估计单个 ArUco 标志点的 6 自由度姿态。
 
         Args:
-            marker: From ``detect()`` — ``(id, corners_4x2, (cx,cy), side_px)``.
-            marker_size_m: Physical side length of the marker in **metres**.
-            camera_matrix: 3×3 camera intrinsics.
-            dist_coeffs:  Lens distortion coefficients.
+            marker: 来自 ``detect()`` — ``(id, corners_4x2, (cx,cy), side_px)``。
+            marker_size_m: 标志点的物理边长，单位为**米**。
+            camera_matrix: 3×3 相机内参矩阵。
+            dist_coeffs:  镜头畸变系数。
 
         Returns:
-            ``(rvec, tvec)`` — rotation vector and translation vector
-            describing the marker's pose **in the camera frame**.
-            tvec is in the same unit as *marker_size_m*.
+            ``(rvec, tvec)`` —— 旋转向量和平移向量，
+            描述标志点在**相机坐标系**下的姿态。
+            tvec 的单位与 *marker_size_m* 相同。
         """
         _, corners_4x2, _, _ = marker
-        # Object points in the marker's local coordinate system (z=0)
+        # 标志点局部坐标系中的物方点（z=0）
         half = marker_size_m / 2.0
         obj_pts = np.array(
             [[-half,  half, 0],
@@ -228,7 +227,7 @@ class CodedMarkerDetector:
         return rvec, tvec
 
     # ------------------------------------------------------------------
-    # Multi-marker PnP
+    # 多标志点 PnP
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -239,24 +238,24 @@ class CodedMarkerDetector:
         dist_coeffs: np.ndarray,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[int], float]:
         """
-        Estimate camera pose from multiple ArUco markers with known 3D positions.
+        利用多个已知 3D 位置的 ArUco 标志点估计相机姿态。
 
-        This is the **core PnP routine** for Phase B of the aircraft
-        pose-estimation pipeline: given markers whose 3D world coordinates
-        are known (from Phase A multi-view reconstruction), compute the
-        camera's pose in that world frame.
+        这是飞行器姿态估计流水线 Phase B 的**核心 PnP 流程**：
+        给定 3D 世界坐标已知的标志点（来自 Phase A 的多视图重建），
+        计算相机在该世界坐标系下的姿态。
 
         Args:
-            markers: Detected ArUco markers (from ``detect()``).
-            object_points: ``{marker_id: (x, y, z) or 3×1 array}``
-                mapping known 3D world coordinates of each marker.
-            camera_matrix: 3×3 camera intrinsics.
-            dist_coeffs:  Lens distortion coefficients.
+            markers: 检测到的 ArUco 标志点（来自 ``detect()``）。
+            object_points: ``{marker_id: (x, y, z) 或 3×1 数组}``
+                映射每个标志点的已知 3D 世界坐标。
+            camera_matrix: 3×3 相机内参矩阵。
+            dist_coeffs:  镜头畸变系数。
 
         Returns:
-            ``(rvec, tvec, used_ids, reproj_error)`` or
-            ``(None, None, [], inf)`` if fewer than 4 matched markers.
-            *rvec* / *tvec* describe the camera pose in the world frame.
+            ``(rvec, tvec, used_ids, reproj_error)``，
+            如果匹配的标志点少于 4 个，则返回
+            ``(None, None, [], inf)``。
+            *rvec* / *tvec* 描述相机在世界坐标系下的姿态。
         """
         img_pts = []
         obj_pts = []
@@ -264,24 +263,20 @@ class CodedMarkerDetector:
 
         for m_id, corners, _, _ in markers:
             if m_id in object_points:
-                img_pts.append(corners[0])  # use first corner (top-left)
+                img_pts.append(corners[0])  # 使用第一个角点（左上）
                 img_pts.append(corners[1])
                 img_pts.append(corners[2])
                 img_pts.append(corners[3])
                 op = np.asarray(object_points[m_id], dtype=np.float32).flatten()
-                # Marker local coords (planar, z=0; scale set by object_points)
-                # We use the 4 corners of a unit square and scale later —
-                # actually, for arbitrary 3D markers we just use the centre.
-                # Better: use all 4 corners as independent 3D points
-                # (requires knowing the marker's physical orientation).
-                # For now we use the marker centre as a single point:
-                obj_pts.extend([op] * 4)  # 4 corners = same 3D point (approx)
+                # 标志点局部坐标（平面，z=0；尺度由 object_points 设定）
+                # 这里使用标志点中心作为单个 3D 点：
+                obj_pts.extend([op] * 4)  # 4 个角点 = 同一 3D 点（近似）
                 used_ids.append(m_id)
 
-        # Deduplicate: we pushed 4× per marker but img_pts has 4 corners
-        # and obj_pts has the same centre repeated 4×. This is a hack —
-        # proper usage should know the marker's 3D corner positions.
-        # For general pose estimation with 4+ markers this works in practice.
+        # 去重：我们为每个标志点推入了 4 次，img_pts 有 4 个角点，
+        # obj_pts 有重复 4 次的同一中心点。这是一个变通方法——
+        # 正确的做法是知道标志点的 3D 角点位置。
+        # 对于 4 个以上标志点的一般姿态估计，这种方法在实践中可行。
 
         if len(used_ids) < 4:
             return None, None, [], float("inf")
@@ -300,7 +295,7 @@ class CodedMarkerDetector:
         if not success:
             return None, None, [], float("inf")
 
-        # Compute reprojection error over inliers
+        # 计算内点上的重投影误差
         if inliers is not None and len(inliers) > 0:
             proj, _ = cv2.projectPoints(
                 obj_pts_arr[inliers.flatten()], rvec, tvec,
@@ -315,7 +310,7 @@ class CodedMarkerDetector:
         return rvec, tvec, used_ids, err
 
     # ------------------------------------------------------------------
-    # Diagnostic methods
+    # 诊断方法
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -326,10 +321,10 @@ class CodedMarkerDetector:
         draw_id: bool = True,
     ) -> np.ndarray:
         """
-        Draw detected markers on a copy of *image*.
+        在 *image* 的副本上绘制检测到的标志点。
 
         Returns:
-            Annotated BGR image (new array; original unchanged).
+            标注后的 BGR 图像（新数组；原图不变）。
         """
         out = image.copy()
         if out.ndim == 2:
@@ -357,10 +352,10 @@ class CodedMarkerDetector:
         axis_length: float = 0.05,
     ) -> np.ndarray:
         """
-        Draw 3D coordinate axes on *image* using ``cv2.drawFrameAxes``.
+        使用 ``cv2.drawFrameAxes`` 在 *image* 上绘制三维坐标轴。
 
         Args:
-            axis_length: Axis length in **metres** (same unit as tvec).
+            axis_length: 坐标轴长度，单位为**米**（与 tvec 单位相同）。
         """
         out = image.copy()
         if out.ndim == 2:
@@ -371,20 +366,20 @@ class CodedMarkerDetector:
 
 
 # ===================================================================
-# Unified marker tracker (ArUco + circular dots)
+# 统一标志点跟踪器（ArUco + 圆形点）
 # ===================================================================
 
 class UnifiedMarkerTracker:
     """
-    Combines ArUco coded-marker detection with circular-dot detection.
+    结合 ArUco 编码标志点检测和圆形点检测。
 
-    Use this when you have a mix of markers:
-    - ArUco tags for ID-based correspondence (ground control points)
-    - Plain circular dots for dense, high-precision tracking (aircraft surface)
+    当你混合使用多种标志点时使用此类：
+    - ArUco 标签用于基于 ID 的对应（地面控制点）
+    - 普通圆形点用于密集、高精度跟踪（飞行器表面）
 
-    Marker ID convention (for the aircraft pose pipeline):
-    - IDs 0–N  : Ground markers (ArUco)
-    - IDs N+1–M: Aircraft markers (ArUco, or circular with ID -1)
+    标志点 ID 约定（用于飞行器姿态流水线）：
+    - ID 0–N  ：地面标志点（ArUco）
+    - ID N+1–M：飞行器标志点（ArUco，或 ID 为 -1 的圆形点）
     """
 
     def __init__(
@@ -396,12 +391,12 @@ class UnifiedMarkerTracker:
             dict_name=aruco_dict,
             refine_corners=refine_corners,
         )
-        # Lazy-import SLSMarkerDetector to avoid circular dependency
+        # 延迟导入 SLSMarkerDetector 以避免循环依赖
         from sls_calib.marker_detector import SLSMarkerDetector
         self._circle_detector = SLSMarkerDetector()
 
     # ------------------------------------------------------------------
-    # Public API
+    # 公开接口
     # ------------------------------------------------------------------
 
     def detectAll(
@@ -411,21 +406,21 @@ class UnifiedMarkerTracker:
         debug: bool = False,
     ) -> Tuple[List[ArUcoMarker], List[Tuple[Tuple[float, float], float]], str]:
         """
-        Detect both ArUco markers and circular dots in one pass.
+        一次遍历同时检测 ArUco 标志点和圆形点。
 
         Returns:
-            ``(aruco_markers, circle_markers, error_info)``.
-            *circle_markers* has the same format as
-            ``SLSMarkerDetector.detectMarkers`` — ``((cx, cy), area)``.
+            ``(aruco_markers, circle_markers, error_info)``。
+            *circle_markers* 的格式与
+            ``SLSMarkerDetector.detectMarkers`` 相同 —— ``((cx, cy), area)``。
         """
         error_info = ""
 
-        # --- ArUco markers ---
+        # --- ArUco 标志点 ---
         aruco_markers, aruco_err = self._aruco_detector.detect(image, debug=debug)
         if aruco_err:
             error_info += f"[ArUco] {aruco_err}; "
 
-        # --- Circular markers ---
+        # --- 圆形标志点 ---
         circle_markers = []
         if detect_circles:
             circle_markers, circle_err = self._circle_detector.detectMarkers(
@@ -444,7 +439,7 @@ class UnifiedMarkerTracker:
         aruco_color: Tuple[int, int, int] = (0, 255, 0),
         circle_color: Tuple[int, int, int] = (255, 0, 0),
     ) -> np.ndarray:
-        """Draw ArUco markers and circular dots on one image."""
+        """在一张图像上绘制 ArUco 标志点和圆形点。"""
         out = CodedMarkerDetector.draw(image, aruco_markers, color=aruco_color)
 
         for (cx, cy), area in circle_markers:
@@ -456,7 +451,7 @@ class UnifiedMarkerTracker:
 
 
 # ===================================================================
-# Marker generation (for printing)
+# 标志点生成（用于打印）
 # ===================================================================
 
 def generate_marker_image(
@@ -466,16 +461,16 @@ def generate_marker_image(
     border_bits: int = 1,
 ) -> np.ndarray:
     """
-    Generate a single ArUco marker as a grayscale image for printing.
+    生成单个 ArUco 标志点的灰度图像，供打印使用。
 
     Args:
-        marker_id:  The ArUco ID to generate (0 .. dict_max-1).
-        dict_name:  Dictionary key, e.g. ``"4x4_50"``.
-        pixel_size: Output image size in pixels (square).
-        border_bits: White border width in marker-bit units.
+        marker_id:  要生成的 ArUco ID（0 .. dict_max-1）。
+        dict_name:  字典键，如 ``"4x4_50"``。
+        pixel_size: 输出图像的像素尺寸（正方形）。
+        border_bits: 白色边框宽度，以标志点位为单位。
 
     Returns:
-        Grayscale ``uint8`` image (``pixel_size × pixel_size``).
+        灰度 ``uint8`` 图像（``pixel_size × pixel_size``）。
     """
     dict_id = CodedMarkerDetector._DICT_MAP[dict_name]
     aruco_dict = cv2.aruco.getPredefinedDictionary(dict_id)
@@ -493,17 +488,17 @@ def generate_marker_sheet(
     margin: int = 20,
 ) -> np.ndarray:
     """
-    Generate a printable sheet of multiple ArUco markers.
+    生成包含多个 ArUco 标志点的可打印纸张。
 
     Args:
-        dict_name: Dictionary key.
-        pixel_size: Size of each individual marker in pixels.
-        ids: List of marker IDs to include (default: 0..15).
-        columns: Number of markers per row.
-        margin: White margin around each marker in pixels.
+        dict_name: 字典键。
+        pixel_size: 每个标志点的像素尺寸。
+        ids: 要包含的标志点 ID 列表（默认：0..15）。
+        columns: 每行的标志点数量。
+        margin: 每个标志点周围的白色边距（像素）。
 
     Returns:
-        Grayscale image with markers arranged in a grid, labelled with IDs.
+        灰度图像，标志点按网格排列，并标注 ID。
     """
     if ids is None:
         ids = list(range(16))
@@ -523,7 +518,7 @@ def generate_marker_sheet(
         marker_img = generate_marker_image(marker_id, dict_name, pixel_size)
         sheet[y0:y0 + pixel_size, x0:x0 + pixel_size] = marker_img
 
-        # Label with ID below the marker
+        # 在标志点下方标注 ID
         label = f"ID:{marker_id}"
         cv2.putText(
             sheet, label,
@@ -542,17 +537,17 @@ def generate_charuco_board(
     marker_length: float = 0.02,
 ) -> cv2.aruco.CharucoBoard:
     """
-    Create a ChArUco board — hybrid chessboard + ArUco, excellent for
-    high-precision camera calibration and ground-plane definition.
+    创建 ChArUco 板 —— 棋盘格 + ArUco 的混合模式，
+    非常适用于高精度相机标定和地平面定义。
 
     Args:
-        dict_name: ArUco dictionary.
-        squares_x, squares_y: Number of chessboard squares.
-        square_length: Side length of each chessboard square (metres).
-        marker_length: Side length of each ArUco marker (metres).
+        dict_name: ArUco 字典。
+        squares_x, squares_y: 棋盘格方块数量。
+        square_length: 每个棋盘格方块的边长（米）。
+        marker_length: 每个 ArUco 标志点的边长（米）。
 
     Returns:
-        ``cv2.aruco.CharucoBoard`` object.
+        ``cv2.aruco.CharucoBoard`` 对象。
     """
     dict_id = CodedMarkerDetector._DICT_MAP[dict_name]
     aruco_dict = cv2.aruco.getPredefinedDictionary(dict_id)
@@ -564,6 +559,6 @@ def generate_charuco_board(
 
 
 # ===================================================================
-# (Test / demo code has been extracted to tests/test_coded_marker.py
-#  and tools/generate_markers.py)
+# （测试/演示代码已提取到 tests/test_coded_marker.py
+#   和 tools/generate_markers.py）
 # ===================================================================

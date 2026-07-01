@@ -1,6 +1,6 @@
-"""Generate printable ArUco marker sheets and ChArUco boards.
+"""生成可打印的 ArUco 标记页和 ChArUco 标定板。
 
-Usage:
+用法:
     python tools/generate_markers.py --dict 4x4_50 --ids 0 1 2 3 4 5 --size 300
     python tools/generate_markers.py --charuco --output charuco_board.png
 """
@@ -36,15 +36,15 @@ def main():
         board = generate_charuco_board(args.dict, args.squares[0], args.squares[1])
         board_img = board.generateImage((1400, 1000))
         cv2.imwrite(args.output, board_img)
-        print(f"ChArUco board: {args.output} ({args.squares[0]}x{args.squares[1]})")
+        print(f"ChArUco 标定板: {args.output} ({args.squares[0]}x{args.squares[1]})")
     else:
         ids = args.ids if args.ids else list(range(16))
         sheet = generate_marker_sheet(args.dict, pixel_size=args.size,
                                       ids=ids, columns=args.columns)
         cv2.imwrite(args.output, sheet)
         rows = (len(ids) + args.columns - 1) // args.columns
-        print(f"Marker sheet: {args.output} ({len(ids)} markers, "
-              f"{args.columns}x{rows} grid, {args.size}px each)")
+        print(f"标记页: {args.output} ({len(ids)} 个标记, "
+              f"{args.columns}x{rows} 网格, 每个 {args.size}px)")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-"""End-to-end calibration pipeline CLI.
+"""端到端标定流水线命令行工具。
 
-Usage:
+用法:
     python tools/run_pipeline.py config.json
     python tools/run_pipeline.py --data-dir data/scene --output-dir output/scene \
         --calib camera.npz --sfm-images data/scene/*.png \
@@ -20,10 +20,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="SLS calibration + SfM + pose estimation pipeline")
 
-    # Config file mode
+    # 配置文件模式
     parser.add_argument("config", nargs="?", help="JSON config file path")
 
-    # Direct CLI mode
+    # 直接命令行模式
     parser.add_argument("--data-dir", default="data",
                         help="Data directory (default: data)")
     parser.add_argument("--output-dir", default="output",
@@ -42,7 +42,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Build config
+    # 构建配置
     if args.config:
         with open(args.config) as f:
             config = json.load(f)
@@ -58,9 +58,9 @@ def main():
 
     pipeline = CalibrationPipeline(config)
 
-    # Determine mode
+    # 确定运行模式
     if args.calib:
-        # Skip calibration, run SfM + pose
+        # 跳过标定，运行 SfM + 姿态估计
         pipeline.load_calibration(args.calib)
 
         sfm_images = None
@@ -70,14 +70,14 @@ def main():
 
         results = pipeline.run_all(calib_images=None, sfm_images=sfm_images)
     elif args.config:
-        # Config-based: tries to auto-load from data_dir
+        # 基于配置文件: 尝试从 data_dir 自动加载
         results = pipeline.run_all()
     else:
         parser.print_help()
         sys.exit(1)
 
     pipeline.export_results()
-    print(f"\nResults exported to {pipeline.output_dir}/")
+    print(f"\n结果已导出到 {pipeline.output_dir}/")
 
 
 if __name__ == "__main__":

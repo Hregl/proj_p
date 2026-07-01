@@ -1,6 +1,6 @@
-"""Stereo camera calibration CLI.
+"""双目标定命令行工具。
 
-Usage:
+用法:
     python tools/run_stereo_calib.py --left left_*.png --right right_*.png \
         --pattern chessboard --pattern-size 9 6 --square-size 0.025
 """
@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
 
     if len(args.left) != len(args.right):
-        print(f"Error: {len(args.left)} left != {len(args.right)} right images")
+        print(f"错误: {len(args.left)} 张左图 != {len(args.right)} 张右图")
         sys.exit(1)
 
     left_imgs = []
@@ -44,17 +44,17 @@ def main():
         imgL = cv2.imread(pl)
         imgR = cv2.imread(pr)
         if imgL is None or imgR is None:
-            print(f"Warning: skipping pair ({pl}, {pr})")
+            print(f"警告: 跳过图像对 ({pl}, {pr})")
             continue
         left_imgs.append(imgL)
         right_imgs.append(imgR)
 
     n = len(left_imgs)
     if n < 5:
-        print(f"Error: need >= 5 valid pairs, got {n}")
+        print(f"错误: 需要至少 5 对有效图像, 实际仅 {n} 对")
         sys.exit(1)
 
-    print(f"Loaded {n} stereo pairs")
+    print(f"已加载 {n} 对立体图像")
 
     calib = StereoCalibrator(
         pattern_type=args.pattern,
@@ -63,19 +63,19 @@ def main():
         aruco_dict_name=args.aruco_dict,
     )
 
-    # Intrinsic calibration
+    # 内参标定
     K_l, d_l, rms_l = calib.calibrate_intrinsics(left_imgs, debug=True)
     K_r, d_r, rms_r = calib.calibrate_intrinsics(right_imgs, debug=True)
 
     if K_l is None or K_r is None:
-        print("Error: intrinsic calibration failed")
+        print("错误: 内参标定失败")
         sys.exit(1)
 
-    # Stereo calibration
+    # 双目标定
     sp = calib.calibrate_stereo(left_imgs, right_imgs,
                                 K_l, d_l, K_r, d_r, debug=True)
     if sp is None:
-        print("Error: stereo calibration failed")
+        print("错误: 双目标定失败")
         sys.exit(1)
 
     print(calib.summary())
@@ -85,7 +85,7 @@ def main():
              K_right=sp.K_right, dist_right=sp.dist_right,
              R=sp.R, T=sp.T, E=sp.E, F=sp.F,
              R1=sp.R1, R2=sp.R2, P1=sp.P1, P2=sp.P2, Q=sp.Q)
-    print(f"\nSaved to {args.output}")
+    print(f"\n已保存到 {args.output}")
 
 
 if __name__ == "__main__":

@@ -1,16 +1,16 @@
-Data Directory
+数据目录
 ==============
 
-Place your calibration and test images here.
+请将标定图像和测试图像放置于此。
 
-Expected structure for the end-to-end pipeline:
+端到端流水线所需的数据结构:
 
   data/
-    calibration/       Single-camera calibration target photos
-    sfm/               Multi-view scene photos for SfM (Camera 1)
-    inference/         Single-view photo for pose estimation (Camera 2)
-    markers/           Generated ArUco marker sheets for printing
+    calibration/       单相机标定标靶照片
+    sfm/               用于 SfM 的多视角场景照片（相机1）
+    inference/         用于姿态估计的单视角照片（相机2）
+    markers/           用于打印的 ArUco 标记页
 
-p1.png is a sample SLS circular-dot calibration target image (1920x1200).
-It contains an 11x9 grid of white circles on a dark background with 5
-larger fiducial circles for grid identification.
+p1.png 是一张示例 SLS 圆点标定标靶图像 (1920x1200)。
+图像为深色背景上的 11x9 白色圆点网格，其中包含 5 个用于
+网格识别的大直径基准圆。

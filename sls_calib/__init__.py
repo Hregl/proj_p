@@ -1,14 +1,14 @@
 """
-sls_calib — SLS camera calibration, SfM, and marker-based pose estimation.
+sls_calib —— SLS 相机标定、运动恢复结构（SfM）与基于标志点的姿态估计。
 
-Submodules
-----------
-  marker_detector   Circular marker detection with subpixel refinement.
-  camera_calib      Single-camera intrinsic calibration via SLS dot grid.
-  coded_marker      ArUco coded-marker detection, PnP, and marker generation.
-  sfm_pipeline      Multi-view SfM reconstruction and bundle adjustment.
-  stereo_calib      Dual-camera stereo calibration and rectification.
-  pipeline          End-to-end calibration pipeline runner.
+子模块
+------
+  marker_detector   基于亚像素精化的圆形标志点检测。
+  camera_calib      基于 SLS 圆点网格的单相机内参标定。
+  coded_marker      ArUco 编码标志点检测、PnP 姿态估计与标志点生成。
+  sfm_pipeline      多视图 SfM 重建与光束法平差。
+  stereo_calib      双相机立体标定与立体校正。
+  pipeline          端到端标定流水线运行器。
 """
 
 # --- marker_detector ------------------------------------------------

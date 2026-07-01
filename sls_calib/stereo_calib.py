@@ -1,30 +1,30 @@
 """
-Stereo Camera Calibration — dual-camera calibration and rectification.
+双目相机标定 —— 双相机标定与立体校正。
 
-Computes the rigid transform (R, T) between two cameras using
-simultaneous observations of a calibration target, then produces
-rectification maps for epipolar-aligned stereo pairs.
+利用两台相机对同一标定靶的同时观测，计算它们之间的
+刚体变换 (R, T)，然后生成用于极线对齐立体图像对的
+校正映射。
 
-Supports multiple calibration-pattern types:
-  - Chessboard       (cv2.findChessboardCorners)
-  - Circular grid    (SLSMarkerDetector + grid assignment)
-  - ChArUco board    (CodedMarkerDetector + cv2.aruco)
+支持多种标定图案类型：
+  - 棋盘格          (cv2.findChessboardCorners)
+  - 圆形网格        (SLSMarkerDetector + 网格分配)
+  - ChArUco 板      (CodedMarkerDetector + cv2.aruco)
 
-Typical workflow
-----------------
-  1. Calibrate each camera individually  →  K_left, dist_left,
-                                            K_right, dist_right
-  2. Load stereo image pairs             →  List[(imgL, imgR), …]
-  3. Detect pattern in all pairs         →  object_points,
-                                            left_image_points,
-                                            right_image_points
-  4. stereoCalibrate                     →  R, T, E, F
-  5. stereoRectify                       →  R1, R2, P1, P2, Q
-  6. initUndistortRectifyMap             →  remap maps
-  7. remap                               →  rectified stereo pairs
+典型工作流程
+--------------
+  1. 单独标定每台相机       →  K_left, dist_left,
+                                 K_right, dist_right
+  2. 加载立体图像对         →  List[(imgL, imgR), …]
+  3. 在所有图像对中检测图案 →  object_points,
+                                 left_image_points,
+                                 right_image_points
+  4. stereoCalibrate         →  R, T, E, F
+  5. stereoRectify           →  R1, R2, P1, P2, Q
+  6. initUndistortRectifyMap →  重映射查找表
+  7. remap                   →  校正后的立体图像对
 
-References
-----------
+参考文献
+--------
   OpenCV: cv2.stereoCalibrate, cv2.stereoRectify,
           cv2.initUndistortRectifyMap, cv2.remap
 """
@@ -43,33 +43,33 @@ from .marker_detector import SLSMarkerDetector
 from .camera_calib import CalibImage, Calibrator
 
 # ---------------------------------------------------------------------------
-# Type aliases
+# 类型别名
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class StereoParams:
-    """Results of stereo calibration (everything needed for rectification)."""
+    """立体标定结果（包含立体校正所需的全部数据）。"""
 
-    K_left: np.ndarray        # 3×3  left camera matrix
-    dist_left: np.ndarray     #      left distortion coefficients
-    K_right: np.ndarray       # 3×3  right camera matrix
-    dist_right: np.ndarray    #      right distortion coefficients
+    K_left: np.ndarray        # 3×3  左相机内参矩阵
+    dist_left: np.ndarray     #      左相机畸变系数
+    K_right: np.ndarray       # 3×3  右相机内参矩阵
+    dist_right: np.ndarray    #      右相机畸变系数
 
-    R: np.ndarray             # 3×3  rotation: right cam → left cam
-    T: np.ndarray             # 3×1  translation: right cam in left frame
-    E: np.ndarray             # 3×3  essential matrix
-    F: np.ndarray             # 3×3  fundamental matrix
+    R: np.ndarray             # 3×3  旋转：右相机 → 左相机
+    T: np.ndarray             # 3×1  平移：右相机在左相机坐标系下
+    E: np.ndarray             # 3×3  本质矩阵
+    F: np.ndarray             # 3×3  基础矩阵
 
-    R1: np.ndarray            # 3×3  left rectification rotation
-    R2: np.ndarray            # 3×3  right rectification rotation
-    P1: np.ndarray            # 3×4  left rectified projection
-    P2: np.ndarray            # 3×4  right rectified projection
-    Q: np.ndarray             # 4×4  disparity-to-depth mapping
+    R1: np.ndarray            # 3×3  左相机校正旋转
+    R2: np.ndarray            # 3×3  右相机校正旋转
+    P1: np.ndarray            # 3×4  左相机校正后投影矩阵
+    P2: np.ndarray            # 3×4  右相机校正后投影矩阵
+    Q: np.ndarray             # 4×4  视差-深度映射矩阵
 
-    image_size: Tuple[int, int]  # (width, height)
+    image_size: Tuple[int, int]  # (宽, 高)
 
-    rms_error: float = 0.0    # stereo calibration RMS reprojection error
+    rms_error: float = 0.0    # 立体标定 RMS 重投影误差
 
 
 # ===================================================================
@@ -79,26 +79,26 @@ class StereoParams:
 
 class StereoCalibrator:
     """
-    Stereo camera calibration and rectification.
+    双目相机标定与立体校正。
 
-    Handles the full pipeline:
-      intrinsic calibration (optional) → stereo calibration → rectification.
+    处理完整流水线：
+      内参标定（可选） → 立体标定 → 立体校正。
 
-    Pattern types
-    -------------
+    图案类型
+    --------
     ``"chessboard"``
-        Standard black-and-white chessboard.  The default and easiest
-        to use.  *pattern_size* is ``(cols, rows)`` of **inner**
-        corners and *square_size* is the side length in metres.
+        标准黑白棋盘格。默认选项，使用最简单。
+        *pattern_size* 为内角点的 ``(cols, rows)``，
+        *square_size* 为方格边长（米）。
 
     ``"circles"``
-        SLS-style circular-dot target (the same 11×9 grid used by
-        ``Calibrator``).  Requires the dot detector and grid logic.
+        SLS 风格的圆形点靶标（与 ``Calibrator`` 使用的
+        11×9 网格相同）。需要圆点检测器和网格逻辑。
 
     ``"charuco"``
-        ChArUco board (chessboard + ArUco).  Most robust — the
-        ArUco markers provide automatic ID assignment even under
-        partial occlusion.  *pattern_size* = ``(squares_x, squares_y)``.
+        ChArUco 板（棋盘格 + ArUco）。最鲁棒 ——
+        ArUco 标志点提供自动 ID 分配，即使部分遮挡也能工作。
+        *pattern_size* = ``(squares_x, squares_y)``。
     """
 
     _PATTERN_CHESS = "chessboard"
@@ -115,18 +115,18 @@ class StereoCalibrator:
     ) -> None:
         """
         Args:
-            pattern_type: ``"chessboard"`` | ``"circles"`` | ``"charuco"``.
-            pattern_size: ``(cols, rows)`` of inner corners or squares.
-            square_size: Physical side length of one square (metres).
-            aruco_dict_name: ArUco dictionary (for ChArUco).
-            marker_size: Physical ArUco marker side length (metres).
+            pattern_type: ``"chessboard"`` | ``"circles"`` | ``"charuco"``。
+            pattern_size: 内角点或方格的 ``(cols, rows)``。
+            square_size: 单个方格的物理边长（米）。
+            aruco_dict_name: ArUco 字典（用于 ChArUco）。
+            marker_size: ArUco 标志点的物理边长（米）。
         """
         if pattern_type not in (self._PATTERN_CHESS,
                                 self._PATTERN_CIRCLES,
                                 self._PATTERN_CHARUCO):
             raise ValueError(
-                f"Unknown pattern_type '{pattern_type}'. "
-                f"Use 'chessboard', 'circles', or 'charuco'."
+                f"未知的 pattern_type '{pattern_type}'。"
+                f"请使用 'chessboard'、'circles' 或 'charuco'。"
             )
 
         self.pattern_type = pattern_type
@@ -135,34 +135,34 @@ class StereoCalibrator:
         self.marker_size = marker_size
         self.aruco_dict_name = aruco_dict_name
 
-        # Internal detectors (lazy-init for circles/charuco)
+        # 内部检测器（对 circles/charuco 延迟初始化）
         self._circle_detector: Optional[SLSMarkerDetector] = None
         self._calibrator: Optional[Calibrator] = None
         self._charuco_board: Optional[cv2.aruco.CharucoBoard] = None
         self._aruco_detector: Optional[cv2.aruco.ArucoDetector] = None
 
-        # Cached 3D object points for the pattern
+        # 缓存图案的三维物方点
         self._obj_points_cache: Optional[np.ndarray] = None
 
-        # Calibration results
+        # 标定结果
         self._K_left: Optional[np.ndarray] = None
         self._dist_left: Optional[np.ndarray] = None
         self._K_right: Optional[np.ndarray] = None
         self._dist_right: Optional[np.ndarray] = None
         self._stereo_params: Optional[StereoParams] = None
 
-        # Rectification maps
+        # 立体校正映射
         self._map_left_x: Optional[np.ndarray] = None
         self._map_left_y: Optional[np.ndarray] = None
         self._map_right_x: Optional[np.ndarray] = None
         self._map_right_y: Optional[np.ndarray] = None
 
     # ------------------------------------------------------------------
-    # 3D object points for the calibration pattern
+    # 标定图案的三维物方点
     # ------------------------------------------------------------------
 
     def _get_object_points(self) -> np.ndarray:
-        """Build (N, 3) array of pattern points in the board's local frame."""
+        """构建标定板局部坐标系中的 (N, 3) 图案点数组。"""
         if self._obj_points_cache is not None:
             return self._obj_points_cache
 
@@ -173,12 +173,12 @@ class StereoCalibrator:
             pts *= self.square_size
 
         elif self.pattern_type == self._PATTERN_CIRCLES:
-            # 11×9 grid, 5 large fiducial circles
-            # This is the SLS calibration board layout
+            # 11×9 网格，5 个大基准圆
+            # 这是 SLS 标定板的布局
             pts_list = []
             for row in range(9):
                 for col in range(11):
-                    # Large circles at specific grid positions
+                    # 大圆位于特定的网格位置
                     large_positions = {(5, 2), (2, 4), (8, 4), (5, 6), (6, 6)}
                     pts_list.append([col, row, 0.0])
             pts = np.array(pts_list, dtype=np.float32)
@@ -187,20 +187,20 @@ class StereoCalibrator:
         elif self.pattern_type == self._PATTERN_CHARUCO:
             sx, sy = self.pattern_size
             board = self._get_charuco_board()
-            # Charuco board object points are the chessboard corners
+            # ChArUco 板的物方点为棋盘格角点
             pts = np.array([
                 [c * self.square_size, r * self.square_size, 0.0]
                 for r in range(sy - 1) for c in range(sx - 1)
             ], dtype=np.float32)
 
         else:
-            raise RuntimeError(f"Unknown pattern: {self.pattern_type}")
+            raise RuntimeError(f"未知图案: {self.pattern_type}")
 
         self._obj_points_cache = pts
         return pts
 
     # ------------------------------------------------------------------
-    # Pattern detection
+    # 图案检测
     # ------------------------------------------------------------------
 
     def detect_pattern(
@@ -209,13 +209,13 @@ class StereoCalibrator:
         debug: bool = False,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], str]:
         """
-        Detect calibration-pattern points in a single image.
+        在单张图像中检测标定图案点。
 
         Returns:
-            ``(corners, object_points, error)``.
-            *corners* is ``(N, 1, 2)`` float array of 2D points
-            (OpenCV convention), or ``None`` on failure.
-            *object_points* is ``(N, 1, 3)`` of corresponding 3D coords.
+            ``(corners, object_points, error)``。
+            *corners* 为 ``(N, 1, 2)`` 的浮点二维点数组
+            （OpenCV 约定），失败时为 ``None``。
+            *object_points* 为对应三维坐标的 ``(N, 1, 3)`` 数组。
         """
         gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -223,12 +223,12 @@ class StereoCalibrator:
             return self._detect_chessboard(gray, debug)
 
         elif self.pattern_type == self._PATTERN_CIRCLES:
-            return self._detect_circles(image, debug)  # needs BGR for detector
+            return self._detect_circles(image, debug)  # 检测器需要 BGR
 
         elif self.pattern_type == self._PATTERN_CHARUCO:
             return self._detect_charuco(gray, debug)
 
-        return None, None, f"Unknown pattern: {self.pattern_type}"
+        return None, None, f"未知图案: {self.pattern_type}"
 
     def _detect_chessboard(
         self, gray: np.ndarray, debug: bool
@@ -239,9 +239,9 @@ class StereoCalibrator:
             flags=cv2.CALIB_CB_EXHAUSTIVE + cv2.CALIB_CB_ACCURACY,
         )
         if not found:
-            return None, None, "Chessboard not found"
+            return None, None, "未找到棋盘格"
 
-        # Sub-pixel refinement
+        # 亚像素精化
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
         cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1), criteria)
 
@@ -252,7 +252,7 @@ class StereoCalibrator:
     def _detect_circles(
         self, image: np.ndarray, debug: bool
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], str]:
-        # Lazy-init circle detector and calibrator
+        # 延迟初始化圆形检测器和标定器
         if self._circle_detector is None:
             self._circle_detector = SLSMarkerDetector()
         if self._calibrator is None:
@@ -265,7 +265,7 @@ class StereoCalibrator:
         if err:
             return None, None, err
         if not markers:
-            return None, None, "No circles detected"
+            return None, None, "未检测到圆"
 
         calib_img.circles = markers
         calib_img.create_display_circles()
@@ -273,7 +273,7 @@ class StereoCalibrator:
         if err2:
             return None, None, err2
 
-        # Extract valid 2D-3D correspondences from circle_array
+        # 从 circle_array 中提取有效的 2D-3D 对应关系
         img_pts = []
         obj_pts = []
         for (px, py), (wx, wy, wz), valid, _ in calib_img.circle_array:
@@ -282,7 +282,7 @@ class StereoCalibrator:
                 obj_pts.append([wx, wy, wz])
 
         if not img_pts:
-            return None, None, "No valid grid assignments"
+            return None, None, "没有有效的网格分配"
 
         return (
             np.array(img_pts, dtype=np.float32).reshape(-1, 1, 2),
@@ -298,13 +298,13 @@ class StereoCalibrator:
 
         corners, ids, _ = detector.detectMarkers(gray)
         if ids is None or len(ids) < 4:
-            return None, None, "Too few ArUco markers for ChArUco"
+            return None, None, "ArUco 标志点太少，无法用于 ChArUco"
 
         n_corners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
             corners, ids, gray, board
         )
         if charuco_corners is None or n_corners < 4:
-            return None, None, "ChArUco corner interpolation failed"
+            return None, None, "ChArUco 角点插值失败"
 
         obj_pts, img_pts = cv2.aruco.getBoardObjectAndImagePoints(
             board, charuco_corners, charuco_ids
@@ -312,7 +312,7 @@ class StereoCalibrator:
         return img_pts, obj_pts, ""
 
     # ------------------------------------------------------------------
-    # Intrinsic calibration (single camera)
+    # 内参标定（单相机）
     # ------------------------------------------------------------------
 
     def calibrate_intrinsics(
@@ -322,14 +322,14 @@ class StereoCalibrator:
         debug: bool = False,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], float]:
         """
-        Calibrate ONE camera using multiple views of the pattern.
+        使用多个图案视图标定一台相机。
 
         Args:
-            images: List of images showing the same calibration pattern.
-            image_size: ``(width, height)`` — auto-detected if None.
+            images: 包含同一标定图案的图像列表。
+            image_size: ``(width, height)`` —— 如果为 None 则自动检测。
 
         Returns:
-            ``(K, dist_coeffs, rms_error)`` or ``(None, None, inf)``.
+            ``(K, dist_coeffs, rms_error)``，失败时返回 ``(None, None, inf)``。
         """
         if not images:
             return None, None, float("inf")
@@ -348,7 +348,7 @@ class StereoCalibrator:
                 img_pts_all.append(corners.reshape(-1, 2))
 
         if len(obj_pts_all) < 3:
-            print(f"  Only {len(obj_pts_all)} valid images (need >= 3).")
+            print(f"  仅有 {len(obj_pts_all)} 张有效图像（需要 >= 3）。")
             return None, None, float("inf")
 
         ret, K, dist, rvecs, tvecs = cv2.calibrateCamera(
@@ -360,7 +360,7 @@ class StereoCalibrator:
         return K, dist.ravel(), ret
 
     # ------------------------------------------------------------------
-    # Stereo calibration
+    # 立体标定
     # ------------------------------------------------------------------
 
     def calibrate_stereo_from_corners(
@@ -377,27 +377,26 @@ class StereoCalibrator:
         debug: bool = False,
     ) -> Optional[StereoParams]:
         """
-        Calibrate stereo rig from pre-detected corner coordinates.
+        使用预先检测到的角点坐标标定立体相机系统。
 
-        This is the core calibration routine — it bypasses pattern
-        detection and works directly with 2D↔3D correspondences.
-        Use this when you already have corner positions (e.g. from
-        synthetic data or from an external detector).
+        这是核心标定流程 —— 它跳过图案检测，直接使用
+        2D↔3D 对应关系进行标定。当你已拥有角点位置时
+        （例如来自合成数据或外部检测器）使用此方法。
 
         Args:
-            left_corners:  List of ``(N,1,2)`` arrays of 2D corner positions.
-            right_corners: List of ``(N,1,2)`` arrays.
-            object_points: ``(N,3)`` array of 3D board points.
-            K_left, dist_left, K_right, dist_right: Intrinsics.
-            image_size: ``(width, height)``.
-            fix_intrinsics: Keep intrinsics fixed (recommended).
+            left_corners:  二维角点位置的 ``(N,1,2)`` 数组列表。
+            right_corners: 二维角点位置的 ``(N,1,2)`` 数组列表。
+            object_points: 三维标定板点的 ``(N,3)`` 数组。
+            K_left, dist_left, K_right, dist_right: 内参。
+            image_size: ``(width, height)``。
+            fix_intrinsics: 保持内参不变（推荐）。
 
         Returns:
-            ``StereoParams`` or ``None`` on failure.
+            ``StereoParams``，失败时返回 ``None``。
         """
         n = len(left_corners)
         if n < 5:
-            print(f"Need >= 5 pairs (got {n}).")
+            print(f"需要 >= 5 对图像（当前 {n} 对）。")
             return None
 
         obj_pts_all = [
@@ -426,7 +425,7 @@ class StereoCalibrator:
         if debug:
             print(f"  stereoCalibrate RMS = {ret:.4f} px")
 
-        # Rectification
+        # 立体校正
         R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(
             K1, d1, K2, d2, image_size, R, T,
             flags=cv2.CALIB_ZERO_DISPARITY, alpha=0,
@@ -459,21 +458,21 @@ class StereoCalibrator:
         debug: bool = False,
     ) -> Optional[StereoParams]:
         """
-        Calibrate the stereo rig: compute R, T, E, F between cameras.
+        标定立体相机系统：计算两相机之间的 R, T, E, F。
 
-        Detects the calibration pattern in each image pair, then
-        calls ``calibrate_stereo_from_corners``.
+        在每个图像对中检测标定图案，然后调用
+        ``calibrate_stereo_from_corners``。
 
         Returns:
-            ``StereoParams`` or ``None`` on failure.
+            ``StereoParams``，失败时返回 ``None``。
         """
         if len(left_images) != len(right_images):
             raise ValueError(
-                f"Mismatched image counts: "
-                f"{len(left_images)} left vs {len(right_images)} right"
+                f"图像数量不匹配："
+                f"左 {len(left_images)} 张 vs 右 {len(right_images)} 张"
             )
         if len(left_images) < 5:
-            print(f"Need >= 5 stereo pairs (got {len(left_images)}).")
+            print(f"需要 >= 5 对立体图像（当前 {len(left_images)} 对）。")
             return None
 
         if image_size is None:
@@ -492,7 +491,7 @@ class StereoCalibrator:
 
             if cornersL is None or cornersR is None:
                 if debug:
-                    print(f"  Pair {idx}: skipped "
+                    print(f"  对 {idx}：跳过 "
                           f"(L={'OK' if cornersL is not None else errL}, "
                           f"R={'OK' if cornersR is not None else errR})")
                 continue
@@ -503,11 +502,11 @@ class StereoCalibrator:
 
         n_valid = len(obj_pts_all)
         if n_valid < 5:
-            print(f"Only {n_valid} valid pairs (need >= 5).")
+            print(f"仅有 {n_valid} 对有效图像（需要 >= 5）。")
             return None
 
         if debug:
-            print(f"  {n_valid}/{len(left_images)} pairs valid "
+            print(f"  {n_valid}/{len(left_images)} 对有效 "
                   f"({(time.perf_counter() - t0) * 1000:.0f} ms)")
 
         return self.calibrate_stereo_from_corners(
@@ -519,11 +518,11 @@ class StereoCalibrator:
         )
 
     # ------------------------------------------------------------------
-    # Rectification
+    # 立体校正
     # ------------------------------------------------------------------
 
     def _build_rectification_maps(self) -> None:
-        """Pre-compute remap look-up tables for fast rectification."""
+        """预计算用于快速立体校正的重映射查找表。"""
         if self._stereo_params is None:
             return
 
@@ -541,13 +540,13 @@ class StereoCalibrator:
         self, left_image: np.ndarray, right_image: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Rectify a stereo pair.
+        校正一对立体图像。
 
-        Returns ``(rectified_left, rectified_right)``, both aligned
-        so that corresponding epipolar lines are horizontal.
+        返回 ``(rectified_left, rectified_right)``，二者对齐使得
+        对应的极线为水平线。
         """
         if self._map_left_x is None:
-            raise RuntimeError("Run calibrate_stereo() first.")
+            raise RuntimeError("请先运行 calibrate_stereo()。")
 
         left_rect = cv2.remap(
             left_image,
@@ -570,18 +569,18 @@ class StereoCalibrator:
         block_size: int = 15,
     ) -> np.ndarray:
         """
-        Compute a disparity map from a stereo pair using SGBM.
+        使用 SGBM 算法计算立体图像对的视差图。
 
         Args:
-            left_image, right_image: The stereo pair.
-            rectify_first: Apply rectification before matching.
-            num_disparities: Must be divisible by 16.
-            block_size: Must be odd.
+            left_image, right_image: 立体图像对。
+            rectify_first: 匹配前先进行立体校正。
+            num_disparities: 必须能被 16 整除。
+            block_size: 必须为奇数。
 
         Returns:
-            Disparity map (float32), scaled by 16.0 (divide by 16 to
-            get pixel disparity).  Use ``stereo_params.Q`` to convert
-            to depth.
+            视差图（float32），缩放因子为 16.0
+            （除以 16 得到像素视差值）。
+            使用 ``stereo_params.Q`` 可转换为深度。
         """
         if rectify_first:
             left, right = self.rectify(left_image, right_image)
@@ -610,21 +609,21 @@ class StereoCalibrator:
         self, disparity: np.ndarray
     ) -> np.ndarray:
         """
-        Convert disparity map to depth (metres) using the Q matrix.
+        使用 Q 矩阵将视差图转换为深度图（米）。
 
-        Returns depth map (float32) in metres, 0 where invalid.
+        返回深度图（float32），单位为米，无效区域为 0。
         """
         if self._stereo_params is None:
-            raise RuntimeError("Run calibrate_stereo() first.")
+            raise RuntimeError("请先运行 calibrate_stereo()。")
 
         points_3d = cv2.reprojectImageTo3D(
             disparity, self._stereo_params.Q, handleMissingValues=True
         )
-        depth = points_3d[:, :, 2]  # Z channel
+        depth = points_3d[:, :, 2]  # Z 通道
         return depth.astype(np.float32)
 
     # ------------------------------------------------------------------
-    # Lazy-init helpers
+    # 延迟初始化辅助方法
     # ------------------------------------------------------------------
 
     def _get_charuco_board(self) -> cv2.aruco.CharucoBoard:
@@ -648,54 +647,54 @@ class StereoCalibrator:
         return self._aruco_detector
 
     # ------------------------------------------------------------------
-    # Properties
+    # 属性
     # ------------------------------------------------------------------
 
     @property
     def stereo_params(self) -> Optional[StereoParams]:
-        """Results of the last ``calibrate_stereo()`` call."""
+        """最近一次 ``calibrate_stereo()`` 调用的结果。"""
         return self._stereo_params
 
     @property
     def baseline(self) -> Optional[float]:
-        """Stereo baseline in **metres** (norm of T)."""
+        """立体基线长度，单位为**米**（T 的范数）。"""
         if self._stereo_params is None:
             return None
         return float(np.linalg.norm(self._stereo_params.T))
 
     @property
     def is_calibrated(self) -> bool:
-        """Whether stereo calibration has been performed."""
+        """立体标定是否已完成。"""
         return self._stereo_params is not None
 
     # ------------------------------------------------------------------
-    # Summary
+    # 摘要
     # ------------------------------------------------------------------
 
     def summary(self) -> str:
-        """Human-readable summary of stereo calibration."""
+        """人类可读的立体标定摘要。"""
         if self._stereo_params is None:
-            return "StereoCalibrator: not calibrated yet."
+            return "StereoCalibrator：尚未标定。"
 
         sp = self._stereo_params
         lines = [
-            "Stereo Calibration Summary",
-            f"  Pattern:    {self.pattern_type} {self.pattern_size}",
-            f"  Image size: {sp.image_size[0]}×{sp.image_size[1]}",
-            f"  RMS error:  {sp.rms_error:.4f} px",
-            f"  Baseline:   {self.baseline * 1000:.2f} mm",
+            "立体标定摘要",
+            f"  图案：      {self.pattern_type} {self.pattern_size}",
+            f"  图像尺寸：  {sp.image_size[0]}×{sp.image_size[1]}",
+            f"  RMS 误差：  {sp.rms_error:.4f} px",
+            f"  基线：      {self.baseline * 1000:.2f} mm",
             "",
-            "  Left camera:",
+            "  左相机：",
             f"    K = [{sp.K_left[0,0]:.1f}, {sp.K_left[1,1]:.1f}] "
             f"cx,cy=({sp.K_left[0,2]:.1f}, {sp.K_left[1,2]:.1f})",
             f"    dist = {np.array2string(sp.dist_left, precision=4, suppress_small=True)}",
             "",
-            "  Right camera:",
+            "  右相机：",
             f"    K = [{sp.K_right[0,0]:.1f}, {sp.K_right[1,1]:.1f}] "
             f"cx,cy=({sp.K_right[0,2]:.1f}, {sp.K_right[1,2]:.1f})",
             f"    dist = {np.array2string(sp.dist_right, precision=4, suppress_small=True)}",
             "",
-            "  Stereo transform (right in left frame):",
+            "  立体变换（右相机在左相机坐标系下）：",
             f"    R = {np.array2string(sp.R, precision=4, suppress_small=True)}",
             f"    T = {np.array2string(sp.T.ravel(), precision=4, suppress_small=True)}  (m)",
         ]
@@ -703,7 +702,7 @@ class StereoCalibrator:
 
 
 # ===================================================================
-# Convenience: single-call stereo calibration (both intrinsics + extrinsics)
+# 便捷函数：单次调用完成立体标定（内参 + 外参）
 # ===================================================================
 
 
@@ -716,25 +715,25 @@ def calibrate_stereo_rig(
     debug: bool = False,
 ) -> Optional[StereoCalibrator]:
     """
-    One-shot stereo calibration: intrinsics → extrinsics → rectification.
+    一键立体标定：内参 → 外参 → 立体校正。
 
-    Convenience wrapper that runs intrinsic calibration for each camera
-    followed by stereo calibration, all in one call.
+    便捷封装函数，依次运行每台相机的内参标定和立体标定，
+    一次调用完成全部流程。
 
     Args:
-        left_images, right_images: Paired images of the calibration
-            target.  Must be in sync (left_images[i] ↔ right_images[i]).
-        pattern_type: ``"chessboard"`` | ``"circles"`` | ``"charuco"``.
-        pattern_size: ``(cols, rows)`` of inner corners.
-        square_size: Physical square side length in **metres**.
-        debug: Print detailed progress.
+        left_images, right_images: 标定靶的配对图像。
+            必须一一对应（left_images[i] ↔ right_images[i]）。
+        pattern_type: ``"chessboard"`` | ``"circles"`` | ``"charuco"``。
+        pattern_size: 内角点的 ``(cols, rows)``。
+        square_size: 方格物理边长，单位为**米**。
+        debug: 打印详细进度。
 
     Returns:
-        Calibrated ``StereoCalibrator``, or ``None`` on failure.
+        标定完成的 ``StereoCalibrator``，失败时返回 ``None``。
     """
     if len(left_images) != len(right_images):
         raise ValueError(
-            f"Image count mismatch: {len(left_images)} vs {len(right_images)}"
+            f"图像数量不匹配：{len(left_images)} vs {len(right_images)}"
         )
 
     calib = StereoCalibrator(
@@ -743,32 +742,32 @@ def calibrate_stereo_rig(
         square_size=square_size,
     )
 
-    # --- Intrinsic calibration ---------------------------------------
+    # --- 内参标定 -----------------------------------------------
     if debug:
-        print("--- Left camera intrinsics ---")
+        print("--- 左相机内参 ---")
     K_left, dist_left, rms_left = calib.calibrate_intrinsics(
         left_images, debug=debug
     )
     if K_left is None:
-        print("Left camera intrinsic calibration failed.")
+        print("左相机内参标定失败。")
         return None
     if debug:
         print(f"  RMS = {rms_left:.4f} px")
 
     if debug:
-        print("--- Right camera intrinsics ---")
+        print("--- 右相机内参 ---")
     K_right, dist_right, rms_right = calib.calibrate_intrinsics(
         right_images, debug=debug
     )
     if K_right is None:
-        print("Right camera intrinsic calibration failed.")
+        print("右相机内参标定失败。")
         return None
     if debug:
         print(f"  RMS = {rms_right:.4f} px")
 
-    # --- Stereo calibration ------------------------------------------
+    # --- 立体标定 ------------------------------------------------
     if debug:
-        print("--- Stereo calibration ---")
+        print("--- 立体标定 ---")
     sp = calib.calibrate_stereo(
         left_images, right_images,
         K_left, dist_left,
@@ -776,7 +775,7 @@ def calibrate_stereo_rig(
         debug=debug,
     )
     if sp is None:
-        print("Stereo calibration failed.")
+        print("立体标定失败。")
         return None
 
     if debug:
@@ -787,7 +786,7 @@ def calibrate_stereo_rig(
 
 
 # ===================================================================
-# Synthetic-data test
+# 合成数据测试
 # ===================================================================
 
 
@@ -798,31 +797,30 @@ def _generate_synthetic_stereo_data(
     square_size: float = 0.025,
     noise_px: float = 0.3,
 ) -> Tuple[
-    List[np.ndarray],       # left images
-    List[np.ndarray],       # right images
-    List[np.ndarray],       # projected corners (left)
-    List[np.ndarray],       # projected corners (right)
-    np.ndarray,             # object points (N×3)
+    List[np.ndarray],       # 左图像列表
+    List[np.ndarray],       # 右图像列表
+    List[np.ndarray],       # 投影角点（左）
+    List[np.ndarray],       # 投影角点（右）
+    np.ndarray,             # 物方点 (N×3)
     np.ndarray,             # K_left
     np.ndarray,             # dist_left
     np.ndarray,             # K_right
     np.ndarray,             # dist_right
-    np.ndarray,             # GT R (right in left frame)
+    np.ndarray,             # GT R（右相机在左相机坐标系下）
     np.ndarray,             # GT T
 ]:
     """
-    Generate synthetic stereo pairs of a chessboard target.
+    为棋盘格靶标生成合成立体图像对。
 
-    Returns both rendered images (for visualisation) AND the projected
-    corner coordinates (for direct injection into calibration, bypassing
-    chessboard detection).  This is the standard approach for testing
-    calibration math.
+    同时返回渲染后的图像（用于可视化）和投影后的角点坐标
+    （可直接注入标定流程，跳过棋盘格检测）。
+    这是测试标定数学逻辑的标准方法。
     """
     rng = np.random.default_rng(42)
     w, h = image_size
     cols, rows = pattern_size
 
-    # Realistic camera intrinsics
+    # 真实的相机内参
     fx = 800.0
     K = np.array([[fx, 0, w / 2], [0, fx, h / 2], [0, 0, 1]], dtype=np.float64)
     dist = np.zeros(5, dtype=np.float64)
@@ -832,12 +830,12 @@ def _generate_synthetic_stereo_data(
     K_right = K.copy()
     dist_right = dist.copy()
 
-    # Stereo baseline: right camera offset in +X
+    # 立体基线：右相机沿 +X 方向偏移
     baseline = 0.12  # 12 cm
     R_gt = np.eye(3)
     T_gt = np.array([baseline, 0.0, 0.0]).reshape(3, 1)
 
-    # 3D chessboard corners (in board local frame, z=0)
+    # 三维棋盘格角点（在标定板局部坐标系中，z=0）
     obj_pts = np.zeros((rows * cols, 3), dtype=np.float32)
     obj_pts[:, :2] = (
         np.mgrid[0:cols, 0:rows].T.reshape(-1, 2) * square_size
@@ -854,7 +852,7 @@ def _generate_synthetic_stereo_data(
         imgL = np.full((h, w, 3), 240, dtype=np.uint8)
         imgR = np.full((h, w, 3), 240, dtype=np.uint8)
 
-        # Board at ~0.3–0.6 m, centred, moderate tilt
+        # 标定板位于约 0.3–0.6 m，居中，适度倾斜
         board_z = 0.3 + rng.random() * 0.3
         board_x = (rng.random() - 0.5) * 0.15
         board_y = (rng.random() - 0.5) * 0.12
@@ -868,12 +866,12 @@ def _generate_synthetic_stereo_data(
         rvec_board = cv2.Rodrigues(R_board)[0]
         tvec_board = -R_board @ board_pos.astype(np.float64)
 
-        # Project to left camera
+        # 投影到左相机
         projL, _ = cv2.projectPoints(
             obj_pts, rvec_board, tvec_board, K_left, dist_left
         )
-        # Right camera: X_right_cam = R_gt @ X_left_cam + T_gt
-        #                = R_gt @ (R_board @ X_obj + tvec) + T_gt
+        # 右相机：X_right_cam = R_gt @ X_left_cam + T_gt
+        #          = R_gt @ (R_board @ X_obj + tvec) + T_gt
         R_right = R_gt @ R_board
         rvec_right = cv2.Rodrigues(R_right)[0]
         tvec_right = (R_gt @ tvec_board.ravel() + T_gt.ravel()).astype(np.float64)
@@ -882,7 +880,7 @@ def _generate_synthetic_stereo_data(
             K_right, dist_right,
         )
 
-        # Check in-bounds (with margin)
+        # 检查是否在图像边界内（含边距）
         projL_2d = projL.reshape(-1, 2)
         projR_2d = projR.reshape(-1, 2)
         margin = 40
@@ -892,7 +890,7 @@ def _generate_synthetic_stereo_data(
         ):
             continue
 
-        # Add noise to corner coords and draw
+        # 向角点坐标添加噪声并绘制
         noisyL = projL_2d + rng.normal(0, noise_px, projL_2d.shape)
         noisyR = projR_2d + rng.normal(0, noise_px, projR_2d.shape)
 
@@ -915,5 +913,5 @@ def _generate_synthetic_stereo_data(
 
 
 # ===================================================================
-# (Test code has been extracted to tests/test_stereo_calib.py)
+# （测试代码已提取到 tests/test_stereo_calib.py）
 # ===================================================================

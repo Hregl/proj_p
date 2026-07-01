@@ -1,12 +1,12 @@
 """
-Camera Calibration — Python port of calib.cpp
+相机标定 —— 源自 calib.cpp 的 Python 移植版本
 ==============================================
-Implements the SLS calibration pipeline:
-  detect markers → NDC conversion → grid assignment → OpenCV calibration
+实现 SLS 标定流水线：
+  检测标志点 → NDC 坐标转换 → 网格分配 → OpenCV 标定
 
-Classes:
-  CalibImage   — mirrors SLSImage: holds image + detected circles + grid data
-  Calibrator   — mirrors SLSRenderer/SLSManager: orchestrates calibration
+类：
+  CalibImage   — 对标 SLSImage：保存图像 + 检测到的圆 + 网格数据
+  Calibrator   — 对标 SLSRenderer/SLSManager：统筹标定流程
 """
 
 import math
@@ -20,34 +20,34 @@ import numpy as np
 from .marker_detector import SLSMarkerDetector, Marker
 
 # ---------------------------------------------------------------------------
-# Type aliases
+# 类型别名
 # ---------------------------------------------------------------------------
-Circle2D = Tuple[float, float]  # (x, y) in pixels
-World3D = Tuple[float, float, float]  # (x, y, z) in world units
+Circle2D = Tuple[float, float]  # (x, y) 像素坐标
+World3D = Tuple[float, float, float]  # (x, y, z) 世界坐标
 DisplayCircle = Tuple[float, float, bool]  # (ndc_x, ndc_y, is_large)
-CircleEntry = Tuple[Circle2D, World3D, bool, float]  # (2D, 3D, valid, radius)
+CircleEntry = Tuple[Circle2D, World3D, bool, float]  # (2D, 3D, 是否有效, 半径)
 
 
 # ---------------------------------------------------------------------------
-# CalibImage  —  a single calibration-target image
+# CalibImage  ——  单张标定靶图像
 # ---------------------------------------------------------------------------
 
 @dataclass
 class CalibImage:
-    """One calibration image with its detected circles and grid assignments."""
+    """单张标定图像及其检测到的圆和网格分配。"""
 
     name: str
     image: np.ndarray
     selected: bool = True
     circles: List[Marker] = field(default_factory=list)  # ((x,y), area)
     display_circles: List[DisplayCircle] = field(default_factory=list)
-    circle_array: List[CircleEntry] = field(default_factory=list)  # length 99
+    circle_array: List[CircleEntry] = field(default_factory=list)  # 长度 99
 
     # ------------------------------------------------------------------
     def create_display_circles(self) -> None:
         """
-        Convert pixel-space circle centres to Normalised Device Coordinates
-        (NDC, [-1, 1]) with Y flipped so top → 1, bottom → -1.
+        将像素空间的圆心转换为归一化设备坐标
+        （NDC, [-1, 1]），Y 轴翻转使其顶部 → 1，底部 → -1。
         """
         if not self.circles:
             return
@@ -69,32 +69,32 @@ class CalibImage:
         target_coords: Optional[np.ndarray] = None,
     ) -> str:
         """
-        Core calibration routine (port of SLSImage::findCircleIndices).
+        核心标定流程（移植自 SLSImage::findCircleIndices）。
 
-        1. Identify the 5 large fiducial circles          (area > threshold × max)
-        2. Sort them geometrically: centre, far-pair, near-pair
-        3. Compute homography → target grid
-        4. Map every detected circle to an 11×9 grid index → circle_array[99]
+        1. 识别 5 个大基准圆               (面积 > threshold × max)
+        2. 按几何位置排序：中心圆、远对圆、近对圆
+        3. 计算单应性矩阵 → 目标网格
+        4. 将每个检测到的圆映射到 11×9 的网格索引 → circle_array[99]
 
         Parameters
         ----------
         circle_interval : float
-            Physical spacing between adjacent circle centres (world units).
+            相邻圆心之间的物理间距（世界单位）。
         large_circle_threshold : float
-            Fraction of max circle area above which a circle is considered
-            a "large" fiducial (default 0.75; original C++ hardcoded 0.5).
-        target_coords : ndarray of shape (5, 2), optional
-            Override the default target coordinates for the 5 sorted fiducial
-            circles. Default matches the original C++ layout.
+            最大圆面积的分数阈值，超过此值的圆被视为"大"基准圆
+            （默认 0.75；原始 C++ 代码硬编码为 0.5）。
+        target_coords : ndarray，形状为 (5, 2)，可选
+            覆盖 5 个排序后基准圆的默认目标坐标。
+            默认值匹配原始 C++ 布局。
 
         Returns
         -------
         error_info : str
-            Empty on success; describes what went wrong otherwise.
+            成功时为空；否则描述出错原因。
         """
         h, w = self.image.shape[:2]
 
-        # -------- 1. find the 5 large circles --------------------------------
+        # -------- 1. 找到 5 个大圆 --------------------------------------
         if not self.circles:
             return f"图像 {self.name} 未检测到任何圆！\n"
 
@@ -113,7 +113,7 @@ class CalibImage:
         if len(large_circles) != 5:
             return f"图像 {self.name} 未找到五大圆！(找到 {len(large_circles)} 个)\n"
 
-        # -------- 2. min-distance pair & max-distance pair --------------------
+        # -------- 2. 最小距离对 & 最大距离对 ----------------------------
         min_dist = float("inf")
         max_dist = 0.0
         min_pair = (0, 1)
@@ -130,10 +130,10 @@ class CalibImage:
                     max_dist = d
                     max_pair = (i, j)
 
-        # -------- 3. sort the 5 circles geometrically -------------------------
+        # -------- 3. 按几何位置对 5 个圆排序 ----------------------------
         sorted_lc: List[Circle2D] = [None] * 5  # type: ignore[assignment]
 
-        # index [0] = the one that is neither min-pair nor max-pair
+        # 索引 [0] = 既不属于最小距离对也不属于最大距离对的那个
         used = {min_pair[0], min_pair[1], max_pair[0], max_pair[1]}
         for i in range(5):
             if i not in used:
@@ -147,10 +147,10 @@ class CalibImage:
         base_vec = (base[0] - sorted_lc[0][0], base[1] - sorted_lc[0][1])
 
         def cross_z(a: Circle2D, b: Circle2D) -> float:
-            """Z-component of cross product (a - origin) × b."""
+            """叉积的 Z 分量 (a - 原点) × b。"""
             return a[0] * b[1] - a[1] * b[0]
 
-        # near pair → indices [3], [4]  (right-handed order)
+        # 近对 → 索引 [3], [4]  （右手定则顺序）
         a = (large_circles[min_pair[0]][0] - sorted_lc[0][0],
              large_circles[min_pair[0]][1] - sorted_lc[0][1])
         if cross_z(a, base_vec) < 0:
@@ -158,7 +158,7 @@ class CalibImage:
         else:
             sorted_lc[3], sorted_lc[4] = large_circles[min_pair[1]], large_circles[min_pair[0]]
 
-        # far pair → indices [1], [2]  (right-handed order)
+        # 远对 → 索引 [1], [2]  （右手定则顺序）
         b = (large_circles[max_pair[0]][0] - sorted_lc[0][0],
              large_circles[max_pair[0]][1] - sorted_lc[0][1])
         if cross_z(b, base_vec) < 0:
@@ -172,15 +172,15 @@ class CalibImage:
                            (int(sx + 0.5), int(sy + 0.5)),
                            10, (0, 0, 0), i + 1)
 
-        # -------- 4. homography from 5 large circles → target grid ------------
+        # -------- 4. 从 5 个大圆到目标网格的单应性变换 ------------------
         src_pts = np.array([[x, y] for x, y in sorted_lc], dtype=np.float32)
         if target_coords is None:
             dst_pts = np.array([
-                [600, 300],  # [0] centre   → grid (5, 2)
-                [300, 500],  # [1] far-left  → grid (2, 4)
-                [900, 500],  # [2] far-right → grid (8, 4)
-                [600, 700],  # [3] near-left → grid (5, 6)
-                [700, 700],  # [4] near-right→ grid (6, 6)
+                [600, 300],  # [0] 中心圆     → 网格 (5, 2)
+                [300, 500],  # [1] 远左圆     → 网格 (2, 4)
+                [900, 500],  # [2] 远右圆     → 网格 (8, 4)
+                [600, 700],  # [3] 近左圆     → 网格 (5, 6)
+                [700, 700],  # [4] 近右圆     → 网格 (6, 6)
             ], dtype=np.float32)
         else:
             dst_pts = np.asarray(target_coords, dtype=np.float32)
@@ -189,7 +189,7 @@ class CalibImage:
 
         H, _ = cv2.findHomography(src_pts, dst_pts)
 
-        # -------- 5. map all circles to the 11×9 grid -------------------------
+        # -------- 5. 将所有检测到的圆映射到 11×9 网格 -------------------
         self.circle_array = [((0.0, 0.0), (0.0, 0.0, 0.0), False, 2.0)
                              for _ in range(99)]
 
@@ -226,21 +226,21 @@ class CalibImage:
 
 
 # ---------------------------------------------------------------------------
-# Calibrator  —  orchestrates multi-image calibration
+# Calibrator  ——  统筹多图像标定
 # ---------------------------------------------------------------------------
 
 class Calibrator:
     """
-    Manages the full calibration pipeline across multiple images and cameras.
+    管理跨多张图像和多个相机的完整标定流水线。
 
-    Mirrors SLSRenderer::extractCircles, SLSRenderer::calibrateCamera, and
-    SLSManager::calibrateScanner from calib.cpp.
+    对标 calib.cpp 中的 SLSRenderer::extractCircles、
+    SLSRenderer::calibrateCamera 和 SLSManager::calibrateScanner。
     """
 
     def __init__(self) -> None:
         self.detector = SLSMarkerDetector()
 
-    # ------ extract circles from all (selected) images --------------------
+    # ------ 从所有（已选中的）图像中提取圆 -------------------------------
     def extract_circles(
         self,
         images: List[CalibImage],
@@ -249,9 +249,9 @@ class Calibrator:
         debug: bool = False,
     ) -> str:
         """
-        Run marker detection on every (selected) image.
+        对每张（已选中的）图像执行标志点检测。
 
-        After this call each ``CalibImage.circles`` is populated.
+        调用后，每个 ``CalibImage.circles`` 即被填充。
         """
         error_info = ""
         count = 0
@@ -271,7 +271,7 @@ class Calibrator:
             img.create_display_circles()
         return error_info
 
-    # ------ single-camera calibration -------------------------------------
+    # ------ 单相机标定 ---------------------------------------------------
     def calibrate_camera(
         self,
         images: List[CalibImage],
@@ -279,12 +279,11 @@ class Calibrator:
         debug: bool = False,
     ) -> Tuple[str, Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Calibrate ONE camera using all images whose ``name`` contains
-        *prefix*.
+        使用所有 ``name`` 包含 *prefix* 的图像标定一台相机。
 
-        Returns (report_string, camera_matrix, dist_coeffs).
+        返回 (报告字符串, 相机内参矩阵, 畸变系数)。
         """
-        # Build mask of circles visible in EVERY matching image
+        # 构建在所有匹配图像中均可见的圆的掩码
         if not images:
             return ("没有图像！\n", None, None)
 
@@ -310,7 +309,7 @@ class Calibrator:
                     print()
             print()
 
-        # Collect 3D ↔ 2D point correspondences
+        # 收集 3D ↔ 2D 点对应关系
         obj_pts_all: List[List[np.ndarray]] = []
         img_pts_all: List[List[np.ndarray]] = []
         radii: List[float] = []
@@ -347,7 +346,7 @@ class Calibrator:
         except cv2.error as exc:
             return (str(exc), None, None)
 
-        # Build report
+        # 构建报告
         lines = [
             f"相机 '{prefix}' 内参矩阵：",
             str(mtx),
@@ -362,7 +361,7 @@ class Calibrator:
         ]
         return ("\n".join(lines), mtx, dist)
 
-    # ------ full scanner calibration --------------------------------------
+    # ------ 完整扫描仪标定 -----------------------------------------------
     def calibrate_scanner(
         self,
         images: List[CalibImage],
@@ -375,27 +374,27 @@ class Calibrator:
         debug: bool = False,
     ) -> str:
         """
-        Top-level calibration entry point (port of SLSManager::calibrateScanner).
+        顶层标定入口（移植自 SLSManager::calibrateScanner）。
 
         Parameters
         ----------
-        images : list of CalibImage
-        camera_prefixes : list of str
-            Prefix strings to match against image names (one per camera).
+        images : CalibImage 列表
+        camera_prefixes : 字符串列表
+            用于匹配图像名称的前缀字符串（每台相机一个）。
         circle_interval : float
-            Physical spacing between circle centres.
+            圆心之间的物理间距。
         only_extrinsic : bool
-            If True, use supplied intrinsic matrices instead of computing them.
-        intrinsic_matrices : list of ndarray, optional
-            Pre-calibrated camera matrices (required when only_extrinsic=True).
-        dist_coeffs_list : list of ndarray, optional
-            Pre-calibrated distortion coefficients.
+            如果为 True，使用提供的内参矩阵而非重新计算。
+        intrinsic_matrices : ndarray 列表，可选
+            预先标定好的相机内参矩阵（only_extrinsic=True 时必需）。
+        dist_coeffs_list : ndarray 列表，可选
+            预先标定好的畸变系数。
         debug : bool
         """
         if not images:
             return "没有图像，无法标定！\n"
 
-        # Match cameras to images
+        # 将相机与图像匹配
         matched_prefixes: List[str] = []
         for pf in camera_prefixes:
             for img in images:
@@ -408,20 +407,20 @@ class Calibrator:
         if len(matched_prefixes) > 2:
             return "图像对应的相机数量超过2！\n"
 
-        # Step 1: extract circles
+        # 步骤 1：提取圆
         error = self.extract_circles(images, only_selected=False, smooth=True,
                                      debug=debug)
         if error:
             return error
 
-        # Step 2: grid assignment for each image
+        # 步骤 2：为每张图像分配网格
         for img in images:
             error += img.find_circle_indices(circle_interval, debug=debug,
                                              large_circle_threshold=large_circle_threshold)
         if error:
             return error
 
-        # Step 3: calibrate each camera
+        # 步骤 3：标定每台相机
         if only_extrinsic:
             if intrinsic_matrices is None or dist_coeffs_list is None:
                 return "仅外参模式下必须提供内参矩阵和畸变系数！\n"
@@ -441,7 +440,7 @@ class Calibrator:
         if error:
             return error
 
-        # Summary
+        # 汇总
         for i, pf in enumerate(matched_prefixes):
             print(f"\n=== 相机 '{pf}' ===")
             print(f"内参矩阵 K =\n{camera_matrices[i]}")
@@ -451,10 +450,10 @@ class Calibrator:
 
 
 # ---------------------------------------------------------------------------
-# Test harness
+# 测试入口
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# (Test / demo code has been extracted to tests/test_camera_calib.py
-#  and tools/run_calibration.py)
+# （测试/演示代码已提取到 tests/test_camera_calib.py
+#   和 tools/run_calibration.py）
 # ---------------------------------------------------------------------------

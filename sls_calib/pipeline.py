@@ -1,8 +1,8 @@
 """
-End-to-End Calibration Pipeline.
+端到端标定流水线。
 
-Orchestrates the full workflow:
-  camera calibration → stereo calibration → SfM → pose estimation.
+统筹完整工作流程：
+  相机标定 → 立体标定 → SfM → 姿态估计。
 """
 
 from __future__ import annotations
@@ -24,10 +24,9 @@ from .sfm_pipeline import MultiViewSfM, View
 
 class CalibrationPipeline:
     """
-    One-stop entry point for the SLS calibration and pose-estimation
-    workflow.
+    SLS 标定与姿态估计工作流程的一站式入口。
 
-    Usage::
+    用法::
 
         pipeline = CalibrationPipeline({
             "data_dir": "data/my_scene",
@@ -48,29 +47,29 @@ class CalibrationPipeline:
     def __init__(self, config: dict) -> None:
         self.config = config
 
-        # Paths
+        # 路径
         self.data_dir = Path(config.get("data_dir", "data"))
         self.output_dir = Path(config.get("output_dir", "output"))
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Marker config
+        # 标志点配置
         self.marker_size_m = config.get("marker_size_m")
         self.aruco_dict = config.get("aruco_dict", "4x4_50")
         self.ground_ids = config.get("ground_marker_ids", [])
         self.aircraft_ids = config.get("aircraft_marker_ids", [])
 
-        # Camera intrinsics (populated by calibrate_camera / load)
+        # 相机内参（由 calibrate_camera / load 填充）
         self._K: Optional[np.ndarray] = None
         self._dist: Optional[np.ndarray] = None
         self._image_size: Optional[Tuple[int, int]] = None
 
-        # Pipeline state
+        # 流水线状态
         self._sfm: Optional[MultiViewSfM] = None
         self._aircraft_pose: Optional[Tuple[np.ndarray, np.ndarray]] = None
         self._timings: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
-    # Step 1 — Camera intrinsic calibration
+    # 步骤 1 —— 相机内参标定
     # ------------------------------------------------------------------
 
     def calibrate_camera(
@@ -79,21 +78,21 @@ class CalibrationPipeline:
         circle_interval: float = 35.0,
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Calibrate a single camera using SLS dot-grid images.
+        使用 SLS 圆点网格图像标定单台相机。
 
         Args:
-            calib_images: List of calibration-board images.
-            circle_interval: Physical circle spacing (mm).
+            calib_images: 标定板图像列表。
+            circle_interval: 物理圆点间距（mm）。
 
         Returns:
-            ``(K, dist_coeffs)``.
+            ``(K, dist_coeffs)``。
         """
         if calib_images is None:
             calib_images = self._load_images(
                 self.data_dir / "calibration", "calib_*.png"
             )
         if not calib_images:
-            print("No calibration images found.")
+            print("未找到标定图像。")
             return None, None
 
         t0 = time.perf_counter()
@@ -106,13 +105,13 @@ class CalibrationPipeline:
         err = calib.extract_circles(calib_imgs, only_selected=True,
                                      smooth=True, debug=False)
         if err:
-            print(f"Circle detection error: {err}")
+            print(f"圆点检测错误：{err}")
             return None, None
 
         for ci in calib_imgs:
             err = ci.find_circle_indices(circle_interval, debug=False)
             if err:
-                print(f"Grid assignment error for {ci.name}: {err}")
+                print(f"{ci.name} 的网格分配错误：{err}")
 
         report, K, dist = calib.calibrate_camera(calib_imgs, "calib", debug=True)
         print(report)
@@ -128,16 +127,16 @@ class CalibrationPipeline:
         return K, dist
 
     # ------------------------------------------------------------------
-    # Step 2 — Load existing calibration
+    # 步骤 2 —— 加载已有标定结果
     # ------------------------------------------------------------------
 
     def load_calibration(self, npz_path: str) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Load camera intrinsics from a ``.npz`` file.
+        从 ``.npz`` 文件中加载相机内参。
 
-        The file should contain ``camera_matrix`` and ``dist_coeffs``
-        arrays (as saved by ``run_calibration.py`` or
-        ``cv2.calibrateCamera``).
+        文件应包含 ``camera_matrix`` 和 ``dist_coeffs``
+        数组（与 ``run_calibration.py`` 或
+        ``cv2.calibrateCamera`` 保存的格式相同）。
         """
         data = np.load(npz_path)
         self._K = data["camera_matrix"]
@@ -145,7 +144,7 @@ class CalibrationPipeline:
         return self._K, self._dist
 
     # ------------------------------------------------------------------
-    # Step 3 — Multi-view SfM (Phase A)
+    # 步骤 3 —— 多视图 SfM（Phase A）
     # ------------------------------------------------------------------
 
     def run_sfm(
@@ -153,25 +152,25 @@ class CalibrationPipeline:
         images: Optional[List[np.ndarray]] = None,
     ) -> Optional[MultiViewSfM]:
         """
-        Run multi-view SfM reconstruction.
+        运行多视图 SfM 重建。
 
-        Requires camera intrinsics to be set (via ``calibrate_camera``
-        or ``load_calibration``).
+        需要先设置相机内参（通过 ``calibrate_camera``
+        或 ``load_calibration``）。
 
         Args:
-            images: List of scene images from Camera 1 (multiple views).
+            images: 来自相机 1 的场景图像列表（多视图）。
 
         Returns:
-            ``MultiViewSfM`` with reconstructed 3D points and camera poses.
+            ``MultiViewSfM``，包含重建的三维点和相机姿态。
         """
         if self._K is None:
-            print("Camera intrinsics not set. Run calibrate_camera() first.")
+            print("相机内参未设置。请先运行 calibrate_camera()。")
             return None
 
         if images is None:
             images = self._load_images(self.data_dir / "sfm", "view_*.png")
         if len(images) < 2:
-            print("Need at least 2 images for SfM.")
+            print("SfM 至少需要 2 张图像。")
             return None
 
         t0 = time.perf_counter()
@@ -184,21 +183,21 @@ class CalibrationPipeline:
         sfm.add_views(images)
 
         if not sfm.initialize():
-            print("SfM initialisation failed.")
+            print("SfM 初始化失败。")
             return None
 
         n_new = sfm.register_all()
-        print(f"Registered {n_new} additional views "
+        print(f"已注册 {n_new} 个额外视图 "
               f"({sum(1 for v in sfm.views if v.registered)}/"
-              f"{len(sfm.views)} total)")
+              f"{len(sfm.views)} 个总计)")
 
         err = sfm.bundle_adjust(iterations=5, use_sparse_lm=True, verbose=True)
-        print(f"BA reprojection error: {err:.3f} px")
+        print(f"BA 重投影误差：{err:.3f} px")
 
-        # Align to ground
+        # 对齐到地面
         if self.ground_ids:
             sfm.align_to_ground(self.ground_ids)
-            print(f"Aligned to {len(self.ground_ids)} ground markers")
+            print(f"已与 {len(self.ground_ids)} 个地面标志点对齐")
 
         self._sfm = sfm
         self._timings["run_sfm"] = (time.perf_counter() - t0) * 1000
@@ -206,7 +205,7 @@ class CalibrationPipeline:
         return sfm
 
     # ------------------------------------------------------------------
-    # Step 4 — Aircraft pose estimation
+    # 步骤 4 —— 飞行器姿态估计
     # ------------------------------------------------------------------
 
     def estimate_aircraft_pose(
@@ -214,34 +213,34 @@ class CalibrationPipeline:
         image: Optional[np.ndarray] = None,
     ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """
-        Estimate aircraft pose (Phase B) via PnP against known 3D points.
+        通过 PnP 结合已知三维点估计飞行器姿态（Phase B）。
 
-        Requires SfM to have been run (``run_sfm``).
+        需要已运行 SfM（``run_sfm``）。
 
         Args:
-            image: Single image from Camera 2 (arbitrary angle).
+            image: 来自相机 2 的单张图像（任意角度）。
 
         Returns:
-            ``(R_aircraft_in_world, t_aircraft_in_world)``.
+            ``(R_aircraft_in_world, t_aircraft_in_world)``。
         """
         if self._sfm is None:
-            print("SfM not run yet. Call run_sfm() first.")
+            print("尚未运行 SfM。请先调用 run_sfm()。")
             return None
         if not self.aircraft_ids:
-            print("aircraft_marker_ids not configured.")
+            print("未配置 aircraft_marker_ids。")
             return None
 
         if image is None:
             images = self._load_images(self.data_dir / "inference", "cam2_*.png")
             if not images:
-                print("No inference image found.")
+                print("未找到推断图像。")
                 return None
             image = images[0]
 
         t0 = time.perf_counter()
 
-        # For `get_aircraft_pose_pnp` we need local coords of aircraft markers.
-        # Use the reconstructed 3D coords as "local" (proxy when no CAD model).
+        # 对于 `get_aircraft_pose_pnp`，需要飞行器标志点的局部坐标。
+        # 使用重建的三维坐标作为"局部"坐标（在没有 CAD 模型时的替代方案）。
         local_coords = [
             self._sfm.points_3d.get(mid, (0.0, 0.0, 0.0))
             for mid in self.aircraft_ids
@@ -252,7 +251,7 @@ class CalibrationPipeline:
         )
 
         if R_ac is None:
-            print("Aircraft pose estimation failed.")
+            print("飞行器姿态估计失败。")
             return None
 
         self._aircraft_pose = (R_ac, t_ac)
@@ -260,7 +259,7 @@ class CalibrationPipeline:
             time.perf_counter() - t0
         ) * 1000
 
-        # Euler angles for readability
+        # 欧拉角，便于阅读
         sy = np.sqrt(R_ac[0, 0] ** 2 + R_ac[1, 0] ** 2)
         singular = sy < 1e-6
         if not singular:
@@ -272,14 +271,14 @@ class CalibrationPipeline:
             ry = math.degrees(math.atan2(-R_ac[2, 0], sy))
             rz = 0.0
 
-        print(f"Aircraft pose:")
-        print(f"  t (m):    ({t_ac[0]:.4f}, {t_ac[1]:.4f}, {t_ac[2]:.4f})")
-        print(f"  euler (°): roll={rx:.2f}  pitch={ry:.2f}  yaw={rz:.2f}")
+        print(f"飞行器姿态：")
+        print(f"  t (m):     ({t_ac[0]:.4f}, {t_ac[1]:.4f}, {t_ac[2]:.4f})")
+        print(f"  欧拉角 (°): roll={rx:.2f}  pitch={ry:.2f}  yaw={rz:.2f}")
 
         return R_ac, t_ac
 
     # ------------------------------------------------------------------
-    # All-in-one
+    # 一键运行全部
     # ------------------------------------------------------------------
 
     def run_all(
@@ -290,40 +289,40 @@ class CalibrationPipeline:
         calib_npz: Optional[str] = None,
     ) -> dict:
         """
-        Run the full pipeline: calibrate → SfM → pose.
+        运行完整流水线：标定 → SfM → 姿态估计。
 
         Returns:
-            Dictionary with keys: ``"K"``, ``"dist"``, ``"points_3d"``,
-            ``"camera_poses"``, ``"aircraft_pose"``, ``"timings"``.
+            字典，键包括：``"K"``, ``"dist"``, ``"points_3d"``,
+            ``"camera_poses"``, ``"aircraft_pose"``, ``"timings"``。
         """
         print("=" * 60)
-        print("SLS Calibration Pipeline")
+        print("SLS 标定流水线")
         print("=" * 60)
 
-        # Camera calibration
-        print("\n--- Step 1: Camera calibration ---")
+        # 相机标定
+        print("\n--- 步骤 1：相机标定 ---")
         if calib_npz:
             self.load_calibration(calib_npz)
-            print(f"Loaded intrinsics from {calib_npz}")
+            print(f"已从 {calib_npz} 加载内参")
         else:
             K, dist = self.calibrate_camera(calib_images)
             if K is None:
-                return {"error": "Camera calibration failed"}
+                return {"error": "相机标定失败"}
 
         # SfM
-        print("\n--- Step 2: Multi-view SfM ---")
+        print("\n--- 步骤 2：多视图 SfM ---")
         sfm = self.run_sfm(sfm_images)
         if sfm is None:
-            return {"error": "SfM reconstruction failed"}
+            return {"error": "SfM 重建失败"}
 
-        # Aircraft pose
-        print("\n--- Step 3: Aircraft pose estimation ---")
+        # 飞行器姿态
+        print("\n--- 步骤 3：飞行器姿态估计 ---")
         pose = self.estimate_aircraft_pose(inference_image)
         if pose is None:
-            return {"error": "Aircraft pose estimation failed"}
+            return {"error": "飞行器姿态估计失败"}
 
         print("\n" + "=" * 60)
-        print("Pipeline complete.")
+        print("流水线运行完毕。")
         for step, ms in self._timings.items():
             print(f"  {step}: {ms:.0f} ms")
         print("=" * 60)
@@ -338,11 +337,11 @@ class CalibrationPipeline:
         }
 
     # ------------------------------------------------------------------
-    # Export
+    # 导出
     # ------------------------------------------------------------------
 
     def export_results(self) -> None:
-        """Save all pipeline results to ``output_dir``."""
+        """将所有流水线结果保存到 ``output_dir``。"""
         if self._K is not None:
             np.savez(
                 self.output_dir / "camera.npz",
@@ -352,7 +351,7 @@ class CalibrationPipeline:
 
         if self._sfm is not None:
             pts = self._sfm.points_3d
-            # Convert dict to arrays for saving
+            # 将字典转换为数组以便保存
             ids = sorted(pts.keys())
             arr = np.array([pts[i] for i in ids], dtype=np.float64)
             np.savez(
@@ -368,7 +367,7 @@ class CalibrationPipeline:
                 R=R, t=t.ravel(),
             )
 
-        # Summary JSON
+        # 摘要 JSON
         summary = {
             "n_views": len(self._sfm.views) if self._sfm else 0,
             "n_registered": sum(1 for v in self._sfm.views if v.registered)
@@ -379,15 +378,15 @@ class CalibrationPipeline:
         with open(self.output_dir / "summary.json", "w") as f:
             json.dump(summary, f, indent=2)
 
-        print(f"Results exported to {self.output_dir}/")
+        print(f"结果已导出到 {self.output_dir}/")
 
     # ------------------------------------------------------------------
-    # Helpers
+    # 辅助方法
     # ------------------------------------------------------------------
 
     @staticmethod
     def _load_images(directory: Path, glob_pattern: str) -> List[np.ndarray]:
-        """Load images matching *glob_pattern* from *directory*."""
+        """从 *directory* 中加载匹配 *glob_pattern* 的图像。"""
         if not directory.exists():
             return []
         paths = sorted(directory.glob(glob_pattern))

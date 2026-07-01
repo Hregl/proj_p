@@ -1,7 +1,7 @@
 """
-Marker Detector - Python port of SLSMarkerDetector from markerdetector.cpp
+标志点检测器 —— 源自 markerdetector.cpp 中 SLSMarkerDetector 的 Python 移植版本
 
-Finds circular markers in images using contour analysis with subpixel refinement.
+通过轮廓分析与亚像素精化，在图像中寻找圆形标志点。
 """
 
 import math
@@ -11,18 +11,18 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 
-# Type alias: a marker is ((cx, cy), area)
+# 类型别名：一个标志点表示为 ((cx, cy), area)
 Marker = Tuple[Tuple[float, float], float]
 
 
 class SLSMarkerDetector:
-    """Detects circular markers in images via contour fitting and subpixel refinement."""
+    """通过轮廓拟合与亚像素精化在图像中检测圆形标志点。"""
 
     def __init__(self) -> None:
         pass
 
     # ------------------------------------------------------------------
-    # Public API
+    # 公开接口
     # ------------------------------------------------------------------
 
     def detectMarkers(
@@ -32,17 +32,17 @@ class SLSMarkerDetector:
         debug: bool = False,
     ) -> Tuple[List[Marker], str]:
         """
-        Detect circular markers in an image.
+        在图像中检测圆形标志点。
 
         Args:
-            image:  Input image (BGR or grayscale numpy array).
-            smooth: Apply GaussianBlur before processing.
-            debug:  Write debug images (mask.png, contour.png, circle.png).
+            image:  输入图像（BGR 或灰度 numpy 数组）。
+            smooth: 处理前是否应用 GaussianBlur。
+            debug:  是否输出调试图像（mask.png, contour.png, circle.png）。
 
         Returns:
-            (markers, error_info) where *markers* is a list of
-            ``((cx, cy), area)`` tuples and *error_info* is an empty
-            string on success or an error description.
+            (markers, error_info)，其中 *markers* 是一个
+            ``((cx, cy), area)`` 元组的列表，*error_info* 在成功时为
+            空字符串，否则为错误描述。
         """
         markers: List[Marker] = []
 
@@ -67,12 +67,12 @@ class SLSMarkerDetector:
         return markers, error_info
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # 内部辅助方法
     # ------------------------------------------------------------------
 
     @staticmethod
     def _timed_print(name: str, t0: float) -> float:
-        """Print elapsed milliseconds since *t0* and return a new timestamp."""
+        """打印自 *t0* 起经过的毫秒数，并返回新的时间戳。"""
         now = time.perf_counter()
         print(f"{name}: {(now - t0) * 1000.0:.3f}ms")
         return now
@@ -89,31 +89,31 @@ class SLSMarkerDetector:
 
         t = time.perf_counter()
 
-        # --- smooth ---------------------------------------------------
+        # --- 平滑处理 ---------------------------------------------------
         if smooth:
             smoothed = cv2.GaussianBlur(image, (3, 3), 0.0)
         else:
             smoothed = image
 
-        # --- threshold ------------------------------------------------
+        # --- 阈值分割 ---------------------------------------------------
         _, mask = cv2.threshold(smoothed, 40, 255, cv2.THRESH_BINARY)
         t = self._timed_print("threshold", t)
 
-        # --- edge + contours ------------------------------------------
+        # --- 边缘检测 + 轮廓提取 ---------------------------------------
         edge = cv2.Canny(smoothed, 50, 150, 3)
 
-        # OpenCV 4.x returns (contours, hierarchy)
+        # OpenCV 4.x 返回 (contours, hierarchy)
         contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
         t = self._timed_print("contour", t)
 
-        # --- Sobel gradients ------------------------------------------
+        # --- Sobel 梯度 -------------------------------------------------
         sobel_x = cv2.Sobel(image, cv2.CV_32F, 1, 0, ksize=1)
         sobel_y = cv2.Sobel(image, cv2.CV_32F, 0, 1, ksize=1)
         t = self._timed_print("sobel", t)
 
-        # --- subpixel refinement --------------------------------------
-        circles: list = []          # cv2.fitEllipse results
-        subpixel_contours: list = []  # refined contours for debug
+        # --- 亚像素精化 -------------------------------------------------
+        circles: list = []          # cv2.fitEllipse 结果
+        subpixel_contours: list = []  # 精化后的轮廓，用于调试
 
         t = time.perf_counter()
 
@@ -127,7 +127,7 @@ class SLSMarkerDetector:
 
             area = abs(cv2.contourArea(contour))
             length = cv2.arcLength(contour, True)
-            # Circularity check: area/length > length / (4*pi) * 0.7
+            # 圆形度检查：area/length > length / (4*pi) * 0.7
             if area / length <= length / (4.0 * math.pi) * 0.7:
                 continue
 
@@ -140,7 +140,7 @@ class SLSMarkerDetector:
             if mask[cy, cx] != 255:
                 continue
 
-            # --- subpixel point refinement ----------------------------
+            # --- 亚像素点精化 --------------------------------------------
             inside = True
             subpixel_pts: List[List[float]] = []
 
@@ -163,7 +163,7 @@ class SLSMarkerDetector:
 
         t = self._timed_print("subpixel", t)
 
-        # --- deduplicate overlapping circles --------------------------
+        # --- 去重：移除重叠的圆 -----------------------------------------
         clean_circles: list = []
         processed = [False] * len(circles)
 
@@ -171,7 +171,7 @@ class SLSMarkerDetector:
             if processed[i]:
                 continue
 
-            # size.area() = width * height of the rotated rect
+            # size.area() = 旋转矩形的宽 × 高
             min_area = circles[i][1][0] * circles[i][1][1]
             min_area_circle = circles[i]
             cxi, cyi = circles[i][0]
@@ -193,7 +193,7 @@ class SLSMarkerDetector:
             markers.append(((min_area_circle[0][0], min_area_circle[0][1]), min_area))
             processed[i] = True
 
-        # --- debug output ---------------------------------------------
+        # --- 调试输出 ---------------------------------------------------
         if debug:
             contour_img = np.zeros((height, width, 3), dtype=np.uint8)
             circle_img = np.zeros((height, width), dtype=np.uint8)
@@ -217,7 +217,7 @@ class SLSMarkerDetector:
             cv2.imwrite("output/circle.png", circle_img)
 
     # ------------------------------------------------------------------
-    # Subpixel refinement (two overloads)
+    # 亚像素精化（两个重载版本）
     # ------------------------------------------------------------------
 
     def _subpixelFit(
@@ -228,11 +228,10 @@ class SLSMarkerDetector:
         sobel_y: np.ndarray,
     ) -> Tuple[float, float]:
         """
-        1-D subpixel refinement using pre-computed Sobel gradients.
+        使用预计算的 Sobel 梯度进行一维亚像素精化。
 
-        Samples a 5-pixel line through *point* — either horizontal or
-        vertical depending on the local gradient direction — and computes
-        a weighted centroid of the gradient magnitudes.
+        在穿过 *point* 的一条 5 像素线段上（根据局部梯度方向选择水平或
+        垂直方向）采样，并计算梯度幅值的加权质心。
         """
         px, py = point
         height, width = image.shape[:2]
@@ -257,13 +256,13 @@ class SLSMarkerDetector:
         angle = math.degrees(math.atan2(diff_y, diff_x))
 
         if (45.0 < angle < 135.0) or (-135.0 < angle < -45.0):
-            # Gradient is mostly vertical → sample along vertical line
+            # 梯度主要为垂直方向 → 沿垂直线采样
             y0 = max(0, py - 2)
             y1 = min(height, py + 3)
             for y in range(y0, y1):
                 accumulate(px, y)
         else:
-            # Gradient is mostly horizontal → sample along horizontal line
+            # 梯度主要为水平方向 → 沿水平线采样
             x0 = max(0, px - 2)
             x1 = min(width, px + 3)
             for x in range(x0, x1):
@@ -275,7 +274,7 @@ class SLSMarkerDetector:
         return (sum_x / sum_wx, sum_y / sum_wy)
 
     # ------------------------------------------------------------------
-    # Alternative 2-D polynomial surface fit (not currently called)
+    # 备选方案：二维多项式曲面拟合（当前未被调用）
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -286,16 +285,15 @@ class SLSMarkerDetector:
         diff_y: float,
     ) -> Tuple[float, float]:
         """
-        2-D subpixel refinement using a cubic polynomial surface fit
-        over a 5×5 neighbourhood and solving for the zero-crossing along
-        the gradient direction.
+        二维亚像素精化：在 5×5 邻域上用三次多项式曲面拟合，沿梯度方向
+        求解过零点。
 
-        Note: kept for parity with the C++ API but not used in the
-        default detection pipeline.
+        注意：保留此方法以与 C++ API 保持一致，但在默认检测流水线中未被
+        使用。
         """
         px, py = point
 
-        # Build 25×10 design matrix and 25×1 observed grey-values
+        # 构建 25×10 的设计矩阵和 25×1 的观测灰度值
         mat_b = np.empty((25, 10), dtype=np.float64)
         mat_y = np.empty((25, 1), dtype=np.float64)
 
@@ -318,16 +316,16 @@ class SLSMarkerDetector:
                 mat_y[row, 0] = float(image[py + ky, px + jx])
                 row += 1
 
-        # Solve least-squares:  coeffs = (BᵗB)⁻¹ Bᵗ y
+        # 最小二乘求解： coeffs = (BᵗB)⁻¹ Bᵗ y
         coeffs, _, _, _ = np.linalg.lstsq(mat_b, mat_y, rcond=None)
-        k = coeffs.flatten()  # 10 cubic-surface coefficients
+        k = coeffs.flatten()  # 10 个三次曲面系数
 
         angle = math.atan2(diff_y, diff_x)
         c = math.cos(angle)
         s = math.sin(angle)
 
-        # p = -1/3 * (quadratic terms) / (cubic terms) evaluated along
-        # the gradient direction (see C++ original for derivation).
+        # p = -1/3 * (二次项) / (三次项)，沿梯度方向求值
+        # （推导参见原始 C++ 代码）。
         numerator = (
             k[3] * c * c
             + k[4] * c * s
@@ -347,5 +345,5 @@ class SLSMarkerDetector:
 
 
 # ----------------------------------------------------------------------
-# (Test / demo code has been extracted to tests/test_marker_detector.py)
+# （测试/演示代码已提取到 tests/test_marker_detector.py）
 # ----------------------------------------------------------------------

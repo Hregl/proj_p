@@ -1,1 +1,1 @@
-"""Tests / demos for the sls_calib package."""
+"""sls_calib 包的测试/演示。"""
