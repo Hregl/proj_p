@@ -39,6 +39,9 @@ from .stereo_calib import StereoCalibrator, StereoParams, calibrate_stereo_rig
 # --- pipeline -------------------------------------------------------
 from .pipeline import CalibrationPipeline
 
+# --- scene_renderer --------------------------------------------------
+from .scene_renderer import Scene, SceneConfig, SceneRenderer, run_virtual_end_to_end_test
+
 __all__ = [
     # marker_detector
     "SLSMarkerDetector",
@@ -65,4 +68,9 @@ __all__ = [
     "calibrate_stereo_rig",
     # pipeline
     "CalibrationPipeline",
+    # scene_renderer
+    "Scene",
+    "SceneConfig",
+    "SceneRenderer",
+    "run_virtual_end_to_end_test",
 ]
