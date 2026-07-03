@@ -42,6 +42,9 @@ from .pipeline import CalibrationPipeline
 # --- scene_renderer --------------------------------------------------
 from .scene_renderer import Scene, SceneConfig, SceneRenderer, run_virtual_end_to_end_test
 
+# --- feature_sfm -----------------------------------------------------
+from .feature_sfm import FeatureBasedSfM, FeatureView, MatchPair
+
 __all__ = [
     # marker_detector
     "SLSMarkerDetector",
