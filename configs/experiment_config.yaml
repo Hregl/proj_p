@@ -1,0 +1,23 @@
+aircraft: configs/aircraft_points.yaml
+board: configs/board_points.yaml
+calibration:
+  cx: 2028.6
+  cy: 1574.0
+  dist:
+  - 0.105
+  - -0.349
+  - -0.0005
+  - 0.0002
+  - 0.0
+  fx: 3282.7
+  fy: 3392.6
+  method: SLS_13img
+  rms_px: 0.99
+camera:
+  f_35mm_eq: 26
+  f_mm: 4.94
+  f_number: 1.5
+  model: phone_main
+  resolution: 4096x3072
+experiment_id: EXP001
+phase: 前期_PnP验证

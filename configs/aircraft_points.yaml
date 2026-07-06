@@ -1,0 +1,45 @@
+aircraft_name: model_jet
+coordinate_system: B
+origin: 机头尖端
+x_axis: 右翼
+y_axis: 前方
+z_axis: 机腹下方
+unit: mm
+notes: 用尺子测量每个标志点在B系中的坐标后填入
+points:
+  A001:
+    x_mm: null
+    y_mm: null
+    z_mm: null
+    region: nose
+    remark: 机头
+  A002:
+    x_mm: null
+    y_mm: null
+    z_mm: null
+    region: left_wing
+    remark: 左翼
+  A003:
+    x_mm: null
+    y_mm: null
+    z_mm: null
+    region: right_wing
+    remark: 右翼
+  A004:
+    x_mm: null
+    y_mm: null
+    z_mm: null
+    region: cockpit
+    remark: 驾驶舱
+  A005:
+    x_mm: null
+    y_mm: null
+    z_mm: null
+    region: tail
+    remark: 垂尾
+  A006:
+    x_mm: null
+    y_mm: null
+    z_mm: null
+    region: belly
+    remark: 机腹
