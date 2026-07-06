@@ -1,5 +1,11 @@
 aircraft: configs/aircraft_points.yaml
-board: configs/board_points.yaml
+board:
+  name: SLS_250x200
+  size_mm: 250x200
+  large_circle_dia_mm: 15
+  small_circle_dia_mm: 7.5
+  spacing_mm: 25
+  points_file: configs/board_points.yaml
 calibration:
   cx: 2028.6
   cy: 1574.0
