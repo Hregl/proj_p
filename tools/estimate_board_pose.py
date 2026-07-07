@@ -24,14 +24,28 @@ def main():
     args = p.parse_args()
 
     # 读配置
-    with open(args.config) as f: exp = yaml.safe_load(f)
-    K = np.array([[exp['calibration']['fx'],0,exp['calibration']['cx']],
-                   [0,exp['calibration']['fy'],exp['calibration']['cy']],
-                   [0,0,1]], dtype=np.float64)
-    dist = np.array(exp['calibration']['dist'], dtype=np.float64)
+    try:
+        with open(args.config) as f: exp = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f'找不到配置文件: {args.config}'); sys.exit(1)
+
+    cal = exp.get('calibration', {})
+    try:
+        K = np.array([[cal['fx'],0,cal['cx']],
+                       [0,cal['fy'],cal['cy']],
+                       [0,0,1]], dtype=np.float64)
+        dist = np.array(cal['dist'], dtype=np.float64)
+    except KeyError as e:
+        print(f'配置文件缺少必要字段: {e} (需要fx,fy,cx,cy,dist)'); sys.exit(1)
+    # 验证K矩阵合理性
+    if K[0,0] <= 0 or K[1,1] <= 0:
+        print(f'K矩阵异常: fx={K[0,0]}, fy={K[1,1]}'); sys.exit(1)
 
     # 读3D点
-    with open(args.board_3d) as f: board = yaml.safe_load(f)
+    try:
+        with open(args.board_3d) as f: board = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f'找不到标定板3D点文件: {args.board_3d}'); sys.exit(1)
     pts3d = np.array(list(board['points'].values()), dtype=np.float64)
     pt_ids_3d = list(board['points'].keys())
 
@@ -55,14 +69,21 @@ def main():
         obj_arr, img_arr, K, dist, flags=cv2.SOLVEPNP_EPNP,
         iterationsCount=200, reprojectionError=2.0, confidence=0.99)
 
-    if not success: print('PnP失败'); sys.exit(1)
+    if not success:
+        print(f'PnP失败: {len(obj_arr)}个点,RANSAC未收敛'); sys.exit(1)
 
     R, _ = cv2.Rodrigues(rvec)
     n_inl = len(inliers) if inliers is not None else 0
 
-    # 重投影误差
-    proj, _ = cv2.projectPoints(obj_arr, rvec, tvec, K, dist)
-    errs = np.linalg.norm(proj.reshape(-1,2) - img_arr, axis=1)
+    # 重投影误差(仅在内点上计算)
+    if inliers is not None and len(inliers) > 0:
+        inl_mask = inliers.ravel().astype(bool)
+        obj_inl = obj_arr[inl_mask]; img_inl = img_arr[inl_mask]
+        proj, _ = cv2.projectPoints(obj_inl, rvec, tvec, K, dist)
+    else:
+        obj_inl, img_inl = obj_arr, img_arr
+        proj, _ = cv2.projectPoints(obj_inl, rvec, tvec, K, dist)
+    errs = np.linalg.norm(proj.reshape(-1,2) - img_inl, axis=1)
     rmse = float(np.sqrt(np.mean(errs**2)))
 
     print(f'标定板PnP: {n_inl}/{len(obj)} 内点, RMSE={rmse:.3f}px')
@@ -72,10 +93,12 @@ def main():
 
     # 保存
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    rv = rvec.ravel()
+    tv = tvec.ravel()
     with open(args.output, 'w') as f:
         f.write('image_id,rvec_x,rvec_y,rvec_z,tvec_x,tvec_y,tvec_z,rmse_px,inlier_count\n')
-        f.write(f'{Path(args.board_2d).stem},{rvec[0][0]:.6f},{rvec[1][0]:.6f},{rvec[2][0]:.6f},')
-        f.write(f'{tvec[0][0]:.4f},{tvec[1][0]:.4f},{tvec[2][0]:.4f},{rmse:.4f},{n_inl}\n')
+        f.write(f'{Path(args.board_2d).stem},{rv[0]:.6f},{rv[1]:.6f},{rv[2]:.6f},')
+        f.write(f'{tv[0]:.4f},{tv[1]:.4f},{tv[2]:.4f},{rmse:.4f},{n_inl}\n')
     print(f'-> {args.output}')
 
 if __name__ == '__main__': main()

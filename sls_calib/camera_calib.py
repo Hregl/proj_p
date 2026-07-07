@@ -99,6 +99,8 @@ class CalibImage:
             return f"图像 {self.name} 未检测到任何圆！\n"
 
         max_area = max(area for _, area in self.circles)
+        if max_area <= 0:
+            return f"图像 {self.name} 检测到的圆面积无效(max_area={max_area:.1f})\n"
         large_indices: List[int] = []
         large_circles: List[Circle2D] = []
 
@@ -106,12 +108,14 @@ class CalibImage:
             if area / max_area > large_circle_threshold:
                 large_indices.append(i)
                 large_circles.append((cx, cy))
-                if len(self.display_circles) == len(self.circles):
+                if (0 <= i < len(self.display_circles) and
+                        len(self.display_circles) == len(self.circles)):
                     ndc_x, ndc_y, _ = self.display_circles[i]
                     self.display_circles[i] = (ndc_x, ndc_y, True)
 
         if len(large_circles) != 5:
-            return f"图像 {self.name} 未找到五大圆！(找到 {len(large_circles)} 个)\n"
+            return (f"图像 {self.name} 未找到五大圆！"
+                    f"(找到 {len(large_circles)} 个, 阈值={large_circle_threshold})\n")
 
         # -------- 2. 最小距离对 & 最大距离对 ----------------------------
         min_dist = float("inf")
@@ -135,10 +139,11 @@ class CalibImage:
 
         # 索引 [0] = 既不属于最小距离对也不属于最大距离对的那个
         used = {min_pair[0], min_pair[1], max_pair[0], max_pair[1]}
-        for i in range(5):
-            if i not in used:
-                sorted_lc[0] = large_circles[i]
-                break
+        center_candidates = [i for i in range(5) if i not in used]
+        if not center_candidates:
+            return (f"图像 {self.name} 五大圆几何排序失败: "
+                    f"最小对{min_pair}与最大对{max_pair}覆盖了全部5个圆\n")
+        sorted_lc[0] = large_circles[center_candidates[0]]
 
         base = (
             0.5 * (large_circles[min_pair[0]][0] + large_circles[min_pair[1]][0]),
@@ -188,6 +193,8 @@ class CalibImage:
                 return f"target_coords 形状必须为 (5, 2)，实际为 {dst_pts.shape}\n"
 
         H, _ = cv2.findHomography(src_pts, dst_pts)
+        if H is None:
+            return f"图像 {self.name} 单应性矩阵估计失败(五大圆可能共线或退化)\n"
 
         # -------- 5. 将所有检测到的圆映射到 11×9 网格 -------------------
         self.circle_array = [((0.0, 0.0), (0.0, 0.0, 0.0), False, 2.0)
@@ -221,6 +228,12 @@ class CalibImage:
                     line += "1 " if valid else "0 "
                 print(line)
             print()
+
+        # 验证网格分配质量
+        assigned = sum(1 for _, _, ok, _ in self.circle_array if ok)
+        if assigned < 10:
+            return (f"图像 {self.name} 网格分配失败: "
+                    f"仅{assigned}个有效点(需≥10)\n")
 
         return ""
 

@@ -122,11 +122,15 @@ class SLSMarkerDetector:
                 continue
 
             x, y, w, h = cv2.boundingRect(contour)
-            if w <= min_size and h <= min_size:
+            # 跳过在任一维度上太小的轮廓
+            if w <= min_size or h <= min_size:
                 continue
 
             area = abs(cv2.contourArea(contour))
             length = cv2.arcLength(contour, True)
+            # 跳过退化轮廓(弧长为零)
+            if length == 0.0:
+                continue
             # 圆形度检查：area/length > length / (4*pi) * 0.7
             if area / length <= length / (4.0 * math.pi) * 0.7:
                 continue
