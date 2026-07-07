@@ -32,10 +32,10 @@ def load_csv_pose(filepath):
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(description='合成飞机相对标定板参考系的最终姿态')
+    p = argparse.ArgumentParser(description='Compose final aircraft pose in board reference frame')
     p.add_argument('--config', default='configs/experiment_config.yaml')
-    p.add_argument('--board-pose', required=True, help='标定板PnP结果CSV')
-    p.add_argument('--aircraft-pose', required=True, help='飞机PnP结果CSV')
+    p.add_argument('--board-pose', required=True, help='Board PnP result CSV')
+    p.add_argument('--aircraft-pose', required=True, help='Aircraft PnP result CSV')
     p.add_argument('--output', '-o', default='output/final_pose.csv')
     args = p.parse_args()
 
@@ -43,11 +43,11 @@ def main():
 
     # board_to_camera: C_T_G
     C_R_G, C_t_G, board_rmse = load_csv_pose(args.board_pose)
-    if C_R_G is None: print('标定板PnP结果无效'); sys.exit(1)
+    if C_R_G is None: print('Board PnP result invalid'); sys.exit(1)
 
     # aircraft_to_camera: C_T_B
     C_R_B, C_t_B, ac_rmse = load_csv_pose(args.aircraft_pose)
-    if C_R_B is None: print('飞机PnP结果无效'); sys.exit(1)
+    if C_R_B is None: print('Aircraft PnP result invalid'); sys.exit(1)
 
     # 相机在标定板系中的位姿: G_R_C = inv(C_R_G)
     G_R_C = np.linalg.inv(C_R_G)  # 使用真逆(处理PnP结果的非严格正交性)
@@ -62,13 +62,13 @@ def main():
     sy = math.sqrt(G_R_B[0,0]**2 + G_R_B[1,0]**2)
     gimbal_warning = ''
     if sy < 1e-3:
-        gimbal_warning = ' [警告: 万向节死锁, yaw/roll不可区分]'
+        gimbal_warning = ' [Warning: gimbal lock, yaw/roll indistinguishable]'
 
-    print(f'=== 最终姿态 (飞机 in 标定板参考系) ===')
+    print(f'=== Final pose (aircraft in board reference frame) ===')
     print(f'yaw:   {yaw:.4f} deg  ({yaw*60:.2f} arcmin){gimbal_warning}')
     print(f'pitch: {pitch:.4f} deg  ({pitch*60:.2f} arcmin)')
     print(f'roll:  {roll:.4f} deg  ({roll*60:.2f} arcmin)')
-    print(f'位置(G系): ({G_t_B[0]:.1f}, {G_t_B[1]:.1f}, {G_t_B[2]:.1f}) mm')
+    print(f'Position (G frame): ({G_t_B[0]:.1f}, {G_t_B[1]:.1f}, {G_t_B[2]:.1f}) mm')
     print(f'board RMSE: {board_rmse:.4f} px')
     print(f'aircraft RMSE: {ac_rmse:.4f} px')
 

@@ -31,3 +31,4 @@ data/scene/
 annotations/board_2d/*.csv
 annotations/aircraft_2d/*.csv
 data/planeC/
+data/planeNew/

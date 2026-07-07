@@ -6,22 +6,22 @@ from sls_calib import CalibImage, Calibrator
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(description='检测标定板图案点')
-    p.add_argument('image', help='标定板图像')
-    p.add_argument('--interval', type=float, default=35, help='圆点间距(mm)')
-    p.add_argument('--threshold', type=float, default=0.55, help='大圆阈值')
+    p = argparse.ArgumentParser(description='Detect calibration board pattern points')
+    p.add_argument('image', help='Calibration board image')
+    p.add_argument('--interval', type=float, default=35, help='Circle spacing (mm)')
+    p.add_argument('--threshold', type=float, default=0.55, help='Large circle threshold')
     p.add_argument('--output', '-o', default='annotations/board_2d/points.csv')
     args = p.parse_args()
 
     img = cv2.imread(args.image)
-    if img is None: print(f'无法读取: {args.image}'); sys.exit(1)
+    if img is None: print(f'Cannot read: {args.image}'); sys.exit(1)
 
     ci = CalibImage(name='board', image=img, selected=True)
     calib = Calibrator()
     calib.extract_circles([ci], only_selected=False, smooth=True, debug=False)
     ci.create_display_circles()
     err = ci.find_circle_indices(args.interval, debug=False, large_circle_threshold=args.threshold)
-    if err: print(f'错误: {err}'); sys.exit(1)
+    if err: print(f'Error: {err}'); sys.exit(1)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, 'w') as f:
@@ -31,6 +31,6 @@ def main():
                 f.write(f'B{i+1:03d},{px:.3f},{py:.3f}\n')
 
     valid = sum(1 for _,_,ok,_ in ci.circle_array if ok)
-    print(f'检测完成: {valid}/99 个有效点 -> {args.output}')
+    print(f'Detection complete: {valid}/99 valid points -> {args.output}')
 
 if __name__ == '__main__': main()
