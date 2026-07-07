@@ -1,0 +1,69 @@
+image: planeC0.png
+point_count: 13
+points:
+  A001:
+    pixel_x: 2585
+    pixel_y: 1429
+    region: cockpit
+    remark: º› ª≤’◊Û
+  A002:
+    pixel_x: 2778
+    pixel_y: 1346
+    region: cockpit
+    remark: º› ª≤’”“
+  A003:
+    pixel_x: 2557
+    pixel_y: 2055
+    region: left_wing
+    remark: ◊Û“Ì÷–
+  A004:
+    pixel_x: 2462
+    pixel_y: 2336
+    region: left_wing
+    remark: ◊Û“Ìº‚«∞
+  A005:
+    pixel_x: 2527
+    pixel_y: 2427
+    region: left_wing
+    remark: ◊Û“Ìº‚∫Û
+  A006:
+    pixel_x: 3394
+    pixel_y: 1727
+    region: right_wing
+    remark: ”““Ì÷–
+  A007:
+    pixel_x: 3711
+    pixel_y: 1850
+    region: right_wing
+    remark: ”““Ìº‚«∞
+  A008:
+    pixel_x: 3762
+    pixel_y: 1961
+    region: right_wing
+    remark: ”““Ìº‚∫Û
+  A009:
+    pixel_x: 2824
+    pixel_y: 2008
+    region: fuselage
+    remark: ª˙…Ì÷–◊Û
+  A010:
+    pixel_x: 3206
+    pixel_y: 1883
+    region: fuselage
+    remark: ª˙…Ì÷–≤ø
+  A011:
+    pixel_x: 3179
+    pixel_y: 2420
+    region: tail
+    remark: ¥πŒ≤
+  A012:
+    pixel_x: 2954
+    pixel_y: 2820
+    region: tail
+    remark: ◊ÛŒ≤“Ì
+  A013:
+    pixel_x: 3832
+    pixel_y: 2430
+    region: tail
+    remark: ”“Œ≤“Ì
+source: manual_label

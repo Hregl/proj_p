@@ -1,45 +1,85 @@
 aircraft_name: model_jet
-coordinate_system: B
-origin: 机头尖端
-x_axis: 右翼
-y_axis: 前方
-z_axis: 机腹下方
+coordinate_system: G
 unit: mm
-notes: 用尺子测量每个标志点在B系中的坐标后填入
+method: 射线-Z平面求交(Z=0)
+origin: 标定板原点
+note: 假设飞机与标定板同平面(Z=0), 13个点
 points:
   A001:
-    x_mm: null
-    y_mm: null
-    z_mm: null
-    region: nose
-    remark: 机头
-  A002:
-    x_mm: null
-    y_mm: null
-    z_mm: null
-    region: left_wing
-    remark: 左翼
-  A003:
-    x_mm: null
-    y_mm: null
-    z_mm: null
-    region: right_wing
-    remark: 右翼
-  A004:
-    x_mm: null
-    y_mm: null
-    z_mm: null
+    x_mm: 128.94
+    y_mm: 301.39
+    z_mm: 0.0
     region: cockpit
-    remark: 驾驶舱
+    remark: 驾驶舱左
+  A002:
+    x_mm: 156.1
+    y_mm: 317.39
+    z_mm: 0.0
+    region: cockpit
+    remark: 驾驶舱右
+  A003:
+    x_mm: 41.22
+    y_mm: 349.15
+    z_mm: 0.0
+    region: left_wing
+    remark: 左翼中
+  A004:
+    x_mm: 3.47
+    y_mm: 358.73
+    z_mm: 0.0
+    region: left_wing
+    remark: 左翼尖前
   A005:
-    x_mm: null
-    y_mm: null
-    z_mm: null
+    x_mm: -1.86
+    y_mm: 370.86
+    z_mm: 0.0
+    region: left_wing
+    remark: 左翼尖后
+  A006:
+    x_mm: 138.78
+    y_mm: 415.29
+    z_mm: 0.0
+    region: right_wing
+    remark: 右翼中
+  A007:
+    x_mm: 141.25
+    y_mm: 454.28
+    z_mm: 0.0
+    region: right_wing
+    remark: 右翼尖前
+  A008:
+    x_mm: 129.27
+    y_mm: 464.54
+    z_mm: 0.0
+    region: right_wing
+    remark: 右翼尖后
+  A009:
+    x_mm: 64.43
+    y_mm: 373.64
+    z_mm: 0.0
+    region: fuselage
+    remark: 机身中左
+  A010:
+    x_mm: 105.13
+    y_mm: 405.09
+    z_mm: 0.0
+    region: fuselage
+    remark: 机身中部
+  A011:
+    x_mm: 39.05
+    y_mm: 431.65
+    z_mm: 0.0
     region: tail
     remark: 垂尾
-  A006:
-    x_mm: null
-    y_mm: null
-    z_mm: null
-    region: belly
-    remark: 机腹
+  A012:
+    x_mm: -14.05
+    y_mm: 430.77
+    z_mm: 0.0
+    region: tail
+    remark: 左尾翼
+  A013:
+    x_mm: 76.19
+    y_mm: 490.3
+    z_mm: 0.0
+    region: tail
+    remark: 右尾翼
