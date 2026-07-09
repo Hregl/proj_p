@@ -15,7 +15,7 @@ class AircraftLabeler:
         if self.img is None:
             raise FileNotFoundError(f'无法读取: {image_path}')
         self.orig = self.img.copy()
-        with open(aircraft_yaml) as f:
+        with open(aircraft_yaml, encoding='utf-8') as f:
             self.ac = yaml.safe_load(f)
         self.point_ids = list(self.ac['points'].keys())
         self.points = {}  # point_id -> (u,v)

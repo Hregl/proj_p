@@ -1,0 +1,28 @@
+image: IMG_20260708_164408.jpg
+point_count: 8
+points:
+  机舱顶:
+    pixel_x: 2877.44
+    pixel_y: 539.3066666666666
+  左翼尖:
+    pixel_x: 1996.8
+    pixel_y: 1515.52
+  右翼尖:
+    pixel_x: 3672.7466666666664
+    pixel_y: 1669.12
+  机脊中部:
+    pixel_x: 2795.52
+    pixel_y: 1488.2133333333334
+  左横尾翼尖:
+    pixel_x: 2181.12
+    pixel_y: 2181.12
+  右横尾翼尖:
+    pixel_x: 3372.3733333333334
+    pixel_y: 2310.826666666667
+  左竖尾翼尖:
+    pixel_x: -1.0
+    pixel_y: -1.0
+  右竖尾翼尖:
+    pixel_x: -1.0
+    pixel_y: -1.0
+source: manual_label

@@ -25,7 +25,7 @@ def main():
 
     # 读配置
     try:
-        with open(args.config) as f: exp = yaml.safe_load(f)
+        with open(args.config, encoding='utf-8') as f: exp = yaml.safe_load(f)
     except FileNotFoundError:
         print(f'Config file not found: {args.config}'); sys.exit(1)
 
@@ -43,7 +43,7 @@ def main():
 
     # 读3D点
     try:
-        with open(args.board_3d) as f: board = yaml.safe_load(f)
+        with open(args.board_3d, encoding='utf-8') as f: board = yaml.safe_load(f)
     except FileNotFoundError:
         print(f'Board 3D points file not found: {args.board_3d}'); sys.exit(1)
     pts3d = np.array(list(board['points'].values()), dtype=np.float64)

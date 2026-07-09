@@ -64,7 +64,7 @@ def main():
     p.add_argument('--output', '-o', default='output/axes_visualization.png')
     args = p.parse_args()
 
-    with open(args.config) as f: exp = yaml.safe_load(f)
+    with open(args.config, encoding='utf-8') as f: exp = yaml.safe_load(f)
     cal = exp['calibration']
     K = np.array([[cal['fx'], 0, cal['cx']],
                    [0, cal['fy'], cal['cy']],
@@ -101,9 +101,12 @@ def main():
 
     # Draw aircraft 3D points
     try:
-        with open(args.aircraft_3d) as f: ac3d = yaml.safe_load(f)
+        with open(args.aircraft_3d, encoding='utf-8') as f: ac3d = yaml.safe_load(f)
         pts_3d = []
-        for name, info in ac3d.get('points', {}).items():
+        pts3d_all = ac3d.get('points', {})
+        if ac3d.get('points_chinese'):
+            pts3d_all = {**pts3d_all, **ac3d['points_chinese']}
+        for name, info in pts3d_all.items():
             pts_3d.append([float(info['x_mm']), float(info['y_mm']), float(info['z_mm'])])
         if pts_3d:
             pts_arr = np.array(pts_3d, dtype=np.float32)

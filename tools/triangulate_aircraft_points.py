@@ -49,7 +49,7 @@ class BoardPoseEstimator:
                  large_thresh: float = 0.55):
         self.K = K.astype(np.float64)
         self.dist = np.asarray(dist, dtype=np.float64).ravel()
-        with open(board_yaml) as f:
+        with open(board_yaml, encoding='utf-8') as f:
             board = yaml.safe_load(f)
         self.pts3d = np.array(list(board['points'].values()), dtype=np.float64)
         self.pt_ids = list(board['points'].keys())
@@ -69,20 +69,59 @@ class BoardPoseEstimator:
         calib = Calibrator()
         calib.extract_circles([ci], only_selected=False, smooth=True, debug=False)
         ci.create_display_circles()
-        err = ci.find_circle_indices(self.interval, debug=False,
-                                     large_circle_threshold=self.thresh)
 
-        if err:
+        # Auto-tune: try thresholds, pick best (high assigned, low RMSE)
+        best_score, best_t = -1, self.thresh
+        best_circle_array = None
+        thresholds = [self.thresh] if self.thresh else \
+                     [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+        for t in thresholds:
+            ci2 = CalibImage(name='tmp', image=img, selected=True)
+            ci2.circles = ci.circles
+            ci2.display_circles = ci.display_circles
+            err = ci2.find_circle_indices(self.interval, debug=False,
+                                          large_circle_threshold=t)
+            if err != '':
+                continue
+            n_assigned = sum(1 for _, _, ok, _ in ci2.circle_array if ok)
+            if n_assigned < 6:
+                continue
+            # Quick PnP to validate this threshold
+            obj_t, img_t = [], []
+            for (px, py), (wx, wy, wz), ok, _ in ci2.circle_array:
+                if ok:
+                    obj_t.append([wx, wy, wz])
+                    img_t.append([px, py])
+            obj_t = np.array(obj_t, dtype=np.float64)
+            img_t = np.array(img_t, dtype=np.float64)
+            ok_pnp, rv, tv, inl = cv2.solvePnPRansac(
+                obj_t, img_t, self.K, self.dist,
+                flags=cv2.SOLVEPNP_EPNP, iterationsCount=100,
+                reprojectionError=3.0, confidence=0.99)
+            if not ok_pnp:
+                continue
+            # Project all points and compute RMSE
+            proj_t, _ = cv2.projectPoints(obj_t, rv, tv, self.K, self.dist)
+            errs_t = np.linalg.norm(proj_t.reshape(-1, 2) - img_t, axis=1)
+            rmse_t = float(np.sqrt(np.mean(errs_t**2)))
+            if rmse_t > 10.0:  # Reject clearly wrong assignments
+                continue
+            # Score: prefer more assigned circles, penalize high RMSE
+            score = n_assigned - rmse_t * 5
+            if score > best_score:
+                best_score = score
+                best_t = t
+                best_circle_array = ci2.circle_array
+
+        if best_circle_array is None:
             return None, None, 999, None, None
+        ci.circle_array = best_circle_array
 
         obj, img_pts = [], []
         for (px, py), (wx, wy, wz), ok, _ in ci.circle_array:
             if ok:
                 obj.append([wx, wy, wz])
                 img_pts.append([px, py])
-
-        if len(obj) < 6:
-            return None, None, 999, None, None
 
         obj_arr = np.array(obj, dtype=np.float64)
         img_arr = np.array(img_pts, dtype=np.float64)
@@ -212,13 +251,18 @@ class AircraftTriangulationGUI:
             })
             self.valids.append(ok)
             status = f"RMSE={rmse:.2f}px" if ok else "FAIL"
+            # Mark frames with insane RMSE as invalid (wrong large circle identification)
+            if ok and rmse > 50.0:
+                ok = False
+                self.valids[i] = False
+                status = f"REJECTED (RMSE={rmse:.1f}px > 50, wrong large circles)"
             name = Path(self.image_paths[i]).name if i < len(self.image_paths) else f"img{i}"
             print(f"  [{i}] {name}: {status}")
 
         n_ok = sum(self.valids)
         print(f"  Valid: {n_ok}/{len(self.images)}")
         if n_ok < 3:
-            print("  ⚠ Valid images < 3, triangulation may fail")
+            print("  WARNING: Valid images < 3, triangulation may fail")
 
     # ------------------------------------------------------------------
     def register_point_names(self, preset_names: Optional[List[str]] = None):
@@ -363,7 +407,7 @@ class AircraftTriangulationGUI:
         hints = None
         if existing_labels and os.path.exists(existing_labels):
             print(f"  Loading existing labels: {existing_labels}")
-            with open(existing_labels) as f:
+            with open(existing_labels, encoding='utf-8') as f:
                 data = yaml.safe_load(f)
             hints = {}
             name_to_idx = {n: i for i, n in enumerate(self.point_names)}
@@ -411,7 +455,7 @@ class AircraftTriangulationGUI:
             }
         data['source'] = 'manual_label'
 
-        with open(out_path, 'w') as f:
+        with open(out_path, 'w', encoding='utf-8') as f:
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     # ------------------------------------------------------------------
@@ -699,7 +743,7 @@ class AircraftTriangulationGUI:
             }
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             yaml.dump(data, f, default_flow_style=False,
                       allow_unicode=True, sort_keys=False)
         print(f"  -> {output_path}")
@@ -738,14 +782,14 @@ def main():
     p.add_argument('--labels', help='Existing labels file for first frame (YAML, skip labeling step)')
     p.add_argument('--max-error', type=float, default=10.0,
                    help='Outlier view reprojection error threshold (px)')
-    p.add_argument('--threshold', type=float, default=0.55,
-                   help='Large circle detection threshold')
+    p.add_argument('--threshold', type=float, default=0.0,
+                   help='Large circle detection threshold (0=auto-tune)')
     args = p.parse_args()
 
     os.makedirs('output', exist_ok=True)
 
     # 读配置
-    with open(args.config) as f:
+    with open(args.config, encoding='utf-8') as f:
         exp = yaml.safe_load(f)
     cal = exp['calibration']
     K = np.array([[cal['fx'], 0, cal['cx']],

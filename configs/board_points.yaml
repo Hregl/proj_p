@@ -6,9 +6,9 @@ large_circle_diameter_mm: 15
 small_circle_diameter_mm: 7.5
 center_spacing_mm: 25
 coordinate_system: G
-x_axis: 长边(250mm)
-y_axis: 短边(200mm)
-z_axis: 法向(上方)
+x_axis: 闀胯竟(250mm)
+y_axis: 鐭竟(200mm)
+z_axis: 娉曞悜(涓婃柟)
 unit: mm
 point_count: 95
 points:

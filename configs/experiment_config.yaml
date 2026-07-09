@@ -1,14 +1,15 @@
 aircraft: configs/aircraft_points.yaml
 board:
-  name: SLS_250x200
-  size_mm: 250x200
   large_circle_dia_mm: 15
+  name: SLS_250x200
+  points_file: configs/board_points.yaml
+  size_mm: 250x200
   small_circle_dia_mm: 7.5
   spacing_mm: 25
-  points_file: configs/board_points.yaml
 calibration:
   cx: 2028.6
   cy: 1574.0
+  date: '2026-07-07'
   dist:
   - 0.105
   - -0.349
@@ -17,13 +18,7 @@ calibration:
   - 0.0
   fx: 3282.7
   fy: 3392.6
+  image_height: 3072
+  image_width: 4096
   method: SLS_13img
   rms_px: 0.99
-camera:
-  f_35mm_eq: 26
-  f_mm: 4.94
-  f_number: 1.5
-  model: phone_main
-  resolution: 4096x3072
-experiment_id: EXP001
-phase: 前期_PnP验证

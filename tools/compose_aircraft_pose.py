@@ -39,7 +39,7 @@ def main():
     p.add_argument('--output', '-o', default='output/final_pose.csv')
     args = p.parse_args()
 
-    with open(args.config) as f: exp = yaml.safe_load(f)
+    with open(args.config, encoding='utf-8') as f: exp = yaml.safe_load(f)
 
     # board_to_camera: C_T_G
     C_R_G, C_t_G, board_rmse = load_csv_pose(args.board_pose)

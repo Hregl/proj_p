@@ -32,3 +32,6 @@ annotations/board_2d/*.csv
 annotations/aircraft_2d/*.csv
 data/planeC/
 data/planeNew/
+data/pN1/
+data/pN2/
+data/calibrationNew/

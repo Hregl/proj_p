@@ -39,7 +39,7 @@ def main():
     args = p.parse_args()
 
     # Load camera
-    with open(args.config) as f: exp = yaml.safe_load(f)
+    with open(args.config, encoding='utf-8') as f: exp = yaml.safe_load(f)
     cal = exp['calibration']
     K = np.array([[cal['fx'], 0, cal['cx']],
                    [0, cal['fy'], cal['cy']],
@@ -47,10 +47,10 @@ def main():
     dist = np.array(cal['dist'], dtype=np.float64)
 
     # Load 3D points
-    with open(args.aircraft_3d) as f: ac3d = yaml.safe_load(f)
+    with open(args.aircraft_3d, encoding='utf-8') as f: ac3d = yaml.safe_load(f)
 
     # Load 2D annotations
-    with open(args.aircraft_2d) as f: ac2d = yaml.safe_load(f)
+    with open(args.aircraft_2d, encoding='utf-8') as f: ac2d = yaml.safe_load(f)
 
     # Load camera pose (C_T_G: board → camera)
     C_R_G, C_t_G, rvec, board_rmse = load_csv_pose(args.camera_pose)
@@ -59,7 +59,10 @@ def main():
 
     # Build 3D-2D correspondences
     obj, img, names = [], [], []
-    for name, info in ac3d.get('points', {}).items():
+    pts3d_all = ac3d.get('points', {})
+    if ac3d.get('points_chinese'):
+        pts3d_all = {**pts3d_all, **ac3d['points_chinese']}
+    for name, info in pts3d_all.items():
         if name in ac2d.get('points', {}):
             p2d = ac2d['points'][name]
             px, py = float(p2d['pixel_x']), float(p2d['pixel_y'])
