@@ -47,7 +47,7 @@ class BoardPoseEstimator:
                  board_yaml: str = "configs/board_points.yaml",
                  circle_interval: float = 25.0,
                  large_thresh: float = 0.55,
-                 use_blob: bool = False):
+                 use_blob: bool = True):
         self.K = K.astype(np.float64)
         self.dist = np.asarray(dist, dtype=np.float64).ravel()
         with open(board_yaml, encoding='utf-8') as f:
@@ -72,7 +72,7 @@ class BoardPoseEstimator:
         if self.use_blob:
             from sls_calib.board_detector import BoardDetector
             bd = BoardDetector()
-            markers = bd.detect(img)
+            markers, _ = bd.detect(img)
             # Convert to CalibImage.circles format: [((cx,cy), area), ...]
             ci.circles = [((cx, cy), area) for (cx, cy), area in markers]
             ci.create_display_circles()
@@ -833,7 +833,7 @@ def main():
 
     # 初始化
     board_est = BoardPoseEstimator(K, dist, large_thresh=args.threshold,
-                                    use_blob=args.blob)
+                                    use_blob=True)  # CC detector
     gui = AircraftTriangulationGUI(images, image_paths, board_est, K, dist)
 
     # 步骤1: 标定板PnP
