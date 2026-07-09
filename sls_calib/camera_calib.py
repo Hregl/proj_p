@@ -135,90 +135,111 @@ class CalibImage:
                     max_pair = (i, j)
 
         # -------- 3. 按几何位置对 5 个圆排序 ----------------------------
-        sorted_lc: List[Circle2D] = [None] * 5  # type: ignore[assignment]
-
-        # 索引 [0] = 既不属于最小距离对也不属于最大距离对的那个
+        # 中心 = 既不属于最小距离对也不属于最大距离对的那个
         used = {min_pair[0], min_pair[1], max_pair[0], max_pair[1]}
         center_candidates = [i for i in range(5) if i not in used]
         if not center_candidates:
             return (f"图像 {self.name} 五大圆几何排序失败: "
                     f"最小对{min_pair}与最大对{max_pair}覆盖了全部5个圆\n")
-        sorted_lc[0] = large_circles[center_candidates[0]]
+        center_circle = large_circles[center_candidates[0]]
 
-        base = (
-            0.5 * (large_circles[min_pair[0]][0] + large_circles[min_pair[1]][0]),
-            0.5 * (large_circles[min_pair[0]][1] + large_circles[min_pair[1]][1]),
-        )
-        base_vec = (base[0] - sorted_lc[0][0], base[1] - sorted_lc[0][1])
-
-        def cross_z(a: Circle2D, b: Circle2D) -> float:
-            """叉积的 Z 分量 (a - 原点) × b。"""
-            return a[0] * b[1] - a[1] * b[0]
-
-        # 近对 → 索引 [3], [4]  （右手定则顺序）
-        a = (large_circles[min_pair[0]][0] - sorted_lc[0][0],
-             large_circles[min_pair[0]][1] - sorted_lc[0][1])
-        if cross_z(a, base_vec) < 0:
-            sorted_lc[3], sorted_lc[4] = large_circles[min_pair[0]], large_circles[min_pair[1]]
-        else:
-            sorted_lc[3], sorted_lc[4] = large_circles[min_pair[1]], large_circles[min_pair[0]]
-
-        # 远对 → 索引 [1], [2]  （右手定则顺序）
-        b = (large_circles[max_pair[0]][0] - sorted_lc[0][0],
-             large_circles[max_pair[0]][1] - sorted_lc[0][1])
-        if cross_z(b, base_vec) < 0:
-            sorted_lc[1], sorted_lc[2] = large_circles[max_pair[0]], large_circles[max_pair[1]]
-        else:
-            sorted_lc[1], sorted_lc[2] = large_circles[max_pair[1]], large_circles[max_pair[0]]
-
-        if debug:
-            for i, (sx, sy) in enumerate(sorted_lc):
-                cv2.circle(self.image,
-                           (int(sx + 0.5), int(sy + 0.5)),
-                           10, (0, 0, 0), i + 1)
-
-        # -------- 4. 从 5 个大圆到目标网格的单应性变换 ------------------
-        src_pts = np.array([[x, y] for x, y in sorted_lc], dtype=np.float32)
+        # Target grid coordinates for the 5 fiducial circles
         if target_coords is None:
             dst_pts = np.array([
-                [600, 300],  # [0] 中心圆     → 网格 (5, 2)
-                [300, 500],  # [1] 远左圆     → 网格 (2, 4)
-                [900, 500],  # [2] 远右圆     → 网格 (8, 4)
-                [600, 700],  # [3] 近左圆     → 网格 (5, 6)
-                [700, 700],  # [4] 近右圆     → 网格 (6, 6)
+                [600, 300],  # [0] center     → grid (5, 2)
+                [300, 500],  # [1] far-left   → grid (2, 4)
+                [900, 500],  # [2] far-right  → grid (8, 4)
+                [600, 700],  # [3] near-left  → grid (5, 6)
+                [700, 700],  # [4] near-right → grid (6, 6)
             ], dtype=np.float32)
         else:
             dst_pts = np.asarray(target_coords, dtype=np.float32)
             if dst_pts.shape != (5, 2):
-                return f"target_coords 形状必须为 (5, 2)，实际为 {dst_pts.shape}\n"
+                return f"target_coords shape must be (5,2), got {dst_pts.shape}\n"
 
-        H, _ = cv2.findHomography(src_pts, dst_pts)
-        if H is None:
-            return f"图像 {self.name} 单应性矩阵估计失败(五大圆可能共线或退化)\n"
+        def cross_z(a: Circle2D, b: Circle2D) -> float:
+            return a[0] * b[1] - a[1] * b[0]
 
-        # -------- 5. 将所有检测到的圆映射到 11×9 网格 -------------------
-        self.circle_array = [((0.0, 0.0), (0.0, 0.0, 0.0), False, 2.0)
-                             for _ in range(99)]
+        def try_assignment(pair_near: Tuple[int, int], dst_near: Tuple[int, int],
+                           pair_far: Tuple[int, int], dst_far: Tuple[int, int],
+                           swap_lr: bool = False
+                           ) -> Tuple[List, int]:
+            """Try one pair-to-target assignment. Returns (circle_array, n_assigned)."""
+            sorted_lc: List[Circle2D] = [None] * 5
+            sorted_lc[0] = center_circle
 
-        all_src = np.array([[cx, cy] for cx, cy, *_ in
-                            [(m[0][0], m[0][1]) for m in self.circles]],
-                           dtype=np.float32).reshape(-1, 1, 2)
-        all_dst = cv2.perspectiveTransform(all_src, H).reshape(-1, 2)
+            # Base vector: center → midpoint of near pair
+            mid_nx = 0.5 * (large_circles[pair_near[0]][0] + large_circles[pair_near[1]][0])
+            mid_ny = 0.5 * (large_circles[pair_near[0]][1] + large_circles[pair_near[1]][1])
+            base_vec = (mid_nx - center_circle[0], mid_ny - center_circle[1])
 
-        for i, ((tx, ty), (_, area)) in enumerate(zip(all_dst, self.circles)):
-            gx = int(tx / 100.0 - 0.5)
-            gy = int(ty / 100.0 - 0.5)
-            if (0 <= gx <= 10 and 0 <= gy <= 8
-                    and abs((gx + 1) * 100.0 - tx) < 10.0
-                    and abs((gy + 1) * 100.0 - ty) < 10.0):
-                idx = gy * 11 + gx
-                px, py = self.circles[i][0]
-                self.circle_array[idx] = (
-                    (px, py),
-                    (circle_interval * gx, circle_interval * gy, 0.0),
-                    True,
-                    math.sqrt(area),
-                )
+            def order_pair(pair, dst_indices):
+                a = (large_circles[pair[0]][0] - center_circle[0],
+                     large_circles[pair[0]][1] - center_circle[1])
+                if cross_z(a, base_vec) < 0:
+                    sorted_lc[dst_indices[0]], sorted_lc[dst_indices[1]] = \
+                        large_circles[pair[0]], large_circles[pair[1]]
+                else:
+                    sorted_lc[dst_indices[0]], sorted_lc[dst_indices[1]] = \
+                        large_circles[pair[1]], large_circles[pair[0]]
+
+            order_pair(pair_near, dst_near)
+            order_pair(pair_far, dst_far)
+
+            if swap_lr:
+                # Swap left-right within each pair
+                sorted_lc[dst_near[0]], sorted_lc[dst_near[1]] = \
+                    sorted_lc[dst_near[1]], sorted_lc[dst_near[0]]
+                sorted_lc[dst_far[0]], sorted_lc[dst_far[1]] = \
+                    sorted_lc[dst_far[1]], sorted_lc[dst_far[0]]
+
+            # Compute homography and grid assignment
+            src_pts = np.array([[x, y] for x, y in sorted_lc], dtype=np.float32)
+            H, _ = cv2.findHomography(src_pts, dst_pts)
+            if H is None:
+                return [], 0
+
+            all_src = np.array([[cx, cy] for cx, cy, *_ in
+                                [(m[0][0], m[0][1]) for m in self.circles]],
+                               dtype=np.float32).reshape(-1, 1, 2)
+            all_dst = cv2.perspectiveTransform(all_src, H).reshape(-1, 2)
+
+            circle_arr = [((0.0, 0.0), (0.0, 0.0, 0.0), False, 2.0)
+                          for _ in range(99)]
+            for i, ((tx, ty), (_, area)) in enumerate(zip(all_dst, self.circles)):
+                gx = int(tx / 100.0 - 0.5)
+                gy = int(ty / 100.0 - 0.5)
+                if (0 <= gx <= 10 and 0 <= gy <= 8
+                        and abs((gx + 1) * 100.0 - tx) < 10.0
+                        and abs((gy + 1) * 100.0 - ty) < 10.0):
+                    idx = gy * 11 + gx
+                    px, py = self.circles[i][0]
+                    circle_arr[idx] = (
+                        (px, py),
+                        (circle_interval * gx, circle_interval * gy, 0.0),
+                        True,
+                        math.sqrt(area),
+                    )
+            n_assigned = sum(1 for _, _, ok, _ in circle_arr if ok)
+            return circle_arr, n_assigned
+
+        # Try 4 combos: 2 near/far orientations × 2 left-right variants
+        best_arr, best_n = [], 0
+        for min_as_near in [True, False]:
+            for swap_lr in [False, True]:
+                if min_as_near:
+                    arr, n = try_assignment(
+                        min_pair, (3, 4), max_pair, (1, 2), swap_lr)
+                else:
+                    arr, n = try_assignment(
+                        max_pair, (3, 4), min_pair, (1, 2), swap_lr)
+                if n > best_n:
+                    best_arr, best_n = arr, n
+
+        if best_n < 10:
+            return (f"图像 {self.name} 网格分配失败: "
+                    f"仅{best_n}个有效点(需≥10)\n")
+        self.circle_array = best_arr
 
         if debug:
             for gy in range(9):
@@ -228,12 +249,6 @@ class CalibImage:
                     line += "1 " if valid else "0 "
                 print(line)
             print()
-
-        # 验证网格分配质量
-        assigned = sum(1 for _, _, ok, _ in self.circle_array if ok)
-        if assigned < 10:
-            return (f"图像 {self.name} 网格分配失败: "
-                    f"仅{assigned}个有效点(需≥10)\n")
 
         return ""
 

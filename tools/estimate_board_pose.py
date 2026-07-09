@@ -66,11 +66,15 @@ def main():
     img_arr = np.array(img, dtype=np.float64)
 
     success, rvec, tvec, inliers = cv2.solvePnPRansac(
-        obj_arr, img_arr, K, dist, flags=cv2.SOLVEPNP_EPNP,
+        obj_arr, img_arr, K, dist, flags=cv2.SOLVEPNP_IPPE,
         iterationsCount=200, reprojectionError=2.0, confidence=0.99)
-
     if not success:
-        print(f'PnP failed: {len(obj_arr)} points, RANSAC did not converge'); sys.exit(1)
+        # IPPE+RANSAC may fail; fallback to IPPE without RANSAC
+        success, rvec, tvec = cv2.solvePnP(
+            obj_arr, img_arr, K, dist, flags=cv2.SOLVEPNP_IPPE)
+        inliers = None
+    if not success:
+        print(f'PnP failed: {len(obj_arr)} points'); sys.exit(1)
 
     R, _ = cv2.Rodrigues(rvec)
     n_inl = len(inliers) if inliers is not None else 0

@@ -94,10 +94,9 @@ class BoardPoseEstimator:
                     img_t.append([px, py])
             obj_t = np.array(obj_t, dtype=np.float64)
             img_t = np.array(img_t, dtype=np.float64)
-            ok_pnp, rv, tv, inl = cv2.solvePnPRansac(
+            ok_pnp, rv, tv = cv2.solvePnP(
                 obj_t, img_t, self.K, self.dist,
-                flags=cv2.SOLVEPNP_EPNP, iterationsCount=100,
-                reprojectionError=3.0, confidence=0.99)
+                flags=cv2.SOLVEPNP_IPPE)
             if not ok_pnp:
                 continue
             # Project all points and compute RMSE
@@ -126,11 +125,17 @@ class BoardPoseEstimator:
         obj_arr = np.array(obj, dtype=np.float64)
         img_arr = np.array(img_pts, dtype=np.float64)
 
+        # IPPE: designed for planar objects (Z=0 board). EPNP fails with all-coplanar points.
         success, rvec, tvec, inliers = cv2.solvePnPRansac(
             obj_arr, img_arr, self.K, self.dist,
-            flags=cv2.SOLVEPNP_EPNP, iterationsCount=200,
+            flags=cv2.SOLVEPNP_IPPE, iterationsCount=200,
             reprojectionError=2.0, confidence=0.99)
-
+        if not success:
+            # Fallback: IPPE without RANSAC
+            success, rvec, tvec = cv2.solvePnP(
+                obj_arr, img_arr, self.K, self.dist,
+                flags=cv2.SOLVEPNP_IPPE)
+            inliers = None
         if not success:
             return None, None, 999, None, None
 

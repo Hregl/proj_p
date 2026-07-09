@@ -45,9 +45,14 @@ def main():
 
     success, rvec, tvec, inliers = cv2.solvePnPRansac(
         obj_arr, img_arr, K, dist,
-        flags=cv2.SOLVEPNP_EPNP, iterationsCount=200,
-        reprojectionError=3.0, confidence=0.99)
-
+        flags=cv2.SOLVEPNP_EPNP, iterationsCount=500,
+        reprojectionError=8.0, confidence=0.99)
+    if not success:
+        # Fallback: ITERATIVE with looser threshold
+        success, rvec, tvec, inliers = cv2.solvePnPRansac(
+            obj_arr, img_arr, K, dist,
+            flags=cv2.SOLVEPNP_ITERATIVE, iterationsCount=500,
+            reprojectionError=15.0, confidence=0.99)
     if not success:
         print('Aircraft PnP failed'); sys.exit(1)
 

@@ -1,86 +1,55 @@
 aircraft_name: model_jet
 coordinate_system: G
 unit: mm
-method: Multi-view triangulation (cv2.triangulatePoints)
-origin: Board origin
-point_count: 8
-note: Generated from 5 valid planeNew images. Z not forced to zero.
+method: 多视图三角测量 (cv2.triangulatePoints)
+origin: 标定板原点
+point_count: 7
+note: 由7张有效图像的多视图三角测量生成。Z坐标非强制为0，反映真实3D位置。
 points:
-  Cockpit: &id001
-    x_mm: -38.4
-    y_mm: -116.2
-    z_mm: -87.9
-    region: cockpit
-    remark: Cockpit top
-    reproj_error_px: 12.74
-    n_views: 5
-  L_Wingtip: &id002
-    x_mm: 94.0
-    y_mm: -30.4
-    z_mm: -67.1
-    region: left_wing
-    remark: Left wingtip
-    reproj_error_px: 6.71
+  机舱顶:
+    x_mm: 367.37
+    y_mm: 60.31
+    z_mm: -225.44
+    reproj_error_px: 2.968
+    n_views: 2
+  左翼尖:
+    x_mm: 321.88
+    y_mm: -38.86
+    z_mm: -248.93
+    reproj_error_px: 3.382
     n_views: 3
-  R_Wingtip: &id003
-    x_mm: 92.7
-    y_mm: -200.0
-    z_mm: -64.8
-    region: right_wing
-    remark: Right wingtip
-    reproj_error_px: 6.13
+  右翼尖:
+    x_mm: 127.54
+    y_mm: 327.37
+    z_mm: -98.55
+    reproj_error_px: 5.666
+    n_views: 4
+  机脊中部:
+    x_mm: 329.61
+    y_mm: 10.72
+    z_mm: -250.48
+    reproj_error_px: 4.8
     n_views: 3
-  Spine: &id004
-    x_mm: 83.4
-    y_mm: -116.7
-    z_mm: -68.4
-    region: fuselage
-    remark: Spine middle
-    reproj_error_px: 13.82
+  左横尾翼尖:
+    x_mm: 605.77
+    y_mm: -325.46
+    z_mm: -461.0
+    reproj_error_px: 25.952
+    n_views: 2
+  左竖尾翼尖:
+    x_mm: 505.89
+    y_mm: -221.44
+    z_mm: -401.74
+    reproj_error_px: 22.105
     n_views: 3
-  L_HTail: &id005
-    x_mm: 160.9
-    y_mm: -60.9
-    z_mm: -58.2
-    region: tail
-    remark: Left horizontal tail tip
-    reproj_error_px: 10.91
-    n_views: 5
-  R_HTail: &id006
-    x_mm: 160.3
-    y_mm: -173.5
-    z_mm: -55.6
-    region: tail
-    remark: Right horizontal tail tip
-    reproj_error_px: 5.73
-    n_views: 3
-  L_VTail: &id007
-    x_mm: 145.6
-    y_mm: -92.0
-    z_mm: -100.2
-    region: tail
-    remark: Left vertical tail tip
-    reproj_error_px: 6.74
-    n_views: 3
-  R_VTail: &id008
-    x_mm: 147.7
-    y_mm: -142.4
-    z_mm: -99.5
-    region: tail
-    remark: Right vertical tail tip
-    reproj_error_px: 12.47
+  右竖尾翼尖:
+    x_mm: 351.33
+    y_mm: -38.93
+    z_mm: -307.17
+    reproj_error_px: 4.791
     n_views: 3
 stats:
-  z_range_mm: -100.2 ~ -55.6
-  z_spread_mm: 44.5
-  z_std_mm: 16.8
-  non_coplanar: true
-points_chinese:
-  机舱顶: *id001
-  左翼尖: *id002
-  右翼尖: *id003
-  机脊中部: *id004
-  左横尾翼尖: *id005
-  右横尾翼尖: *id006
-  左竖尾翼尖: *id007
-  右竖尾翼尖: *id008
+  z_range_mm: -461.0 ~ -98.5
+  z_spread_mm: '362.4'
+  z_std_mm: '110.8'
+  non_coplanar: 'Yes'
