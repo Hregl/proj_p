@@ -3,53 +3,47 @@ coordinate_system: G
 unit: mm
 method: 多视图三角测量 (cv2.triangulatePoints)
 origin: 标定板原点
-point_count: 7
-note: 由7张有效图像的多视图三角测量生成。Z坐标非强制为0，反映真实3D位置。
+point_count: 6
+note: 由17张有效图像的多视图三角测量生成。Z坐标非强制为0，反映真实3D位置。
 points:
   机舱顶:
-    x_mm: 367.37
-    y_mm: 60.31
-    z_mm: -225.44
-    reproj_error_px: 2.968
-    n_views: 2
+    x_mm: 249.21
+    y_mm: 240.43
+    z_mm: -113.62
+    reproj_error_px: 5.936
+    n_views: 10
   左翼尖:
-    x_mm: 321.88
-    y_mm: -38.86
-    z_mm: -248.93
-    reproj_error_px: 3.382
-    n_views: 3
+    x_mm: 117.13
+    y_mm: 165.94
+    z_mm: -98.07
+    reproj_error_px: 6.688
+    n_views: 7
   右翼尖:
-    x_mm: 127.54
-    y_mm: 327.37
-    z_mm: -98.55
-    reproj_error_px: 5.666
-    n_views: 4
+    x_mm: 128.1
+    y_mm: 326.8
+    z_mm: -99.75
+    reproj_error_px: 7.011
+    n_views: 6
   机脊中部:
-    x_mm: 329.61
-    y_mm: 10.72
-    z_mm: -250.48
-    reproj_error_px: 4.8
-    n_views: 3
+    x_mm: 131.71
+    y_mm: 245.83
+    z_mm: -101.45
+    reproj_error_px: 4.049
+    n_views: 5
   左横尾翼尖:
-    x_mm: 605.77
-    y_mm: -325.46
-    z_mm: -461.0
-    reproj_error_px: 25.952
-    n_views: 2
-  左竖尾翼尖:
-    x_mm: 505.89
-    y_mm: -221.44
-    z_mm: -401.74
-    reproj_error_px: 22.105
-    n_views: 3
-  右竖尾翼尖:
-    x_mm: 351.33
-    y_mm: -38.93
-    z_mm: -307.17
-    reproj_error_px: 4.791
-    n_views: 3
+    x_mm: 54.29
+    y_mm: 196.79
+    z_mm: -89.6
+    reproj_error_px: 6.061
+    n_views: 5
+  右横尾翼尖:
+    x_mm: 62.03
+    y_mm: 301.33
+    z_mm: -93.68
+    reproj_error_px: 3.25
+    n_views: 6
 stats:
-  z_range_mm: -461.0 ~ -98.5
-  z_spread_mm: '362.4'
-  z_std_mm: '110.8'
+  z_range_mm: -113.6 ~ -89.6
+  z_spread_mm: '24.0'
+  z_std_mm: '7.5'
   non_coplanar: 'Yes'

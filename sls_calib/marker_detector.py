@@ -96,11 +96,11 @@ class SLSMarkerDetector:
             smoothed = image
 
         # --- 阈值分割 ---------------------------------------------------
-        _, mask = cv2.threshold(smoothed, 40, 255, cv2.THRESH_BINARY)
+        _, mask = cv2.threshold(smoothed, 35, 255, cv2.THRESH_BINARY)
         t = self._timed_print("threshold", t)
 
         # --- 边缘检测 + 轮廓提取 ---------------------------------------
-        edge = cv2.Canny(smoothed, 50, 150, 3)
+        edge = cv2.Canny(smoothed, 20, 60, 3)
 
         # OpenCV 4.x 返回 (contours, hierarchy)
         contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
@@ -121,18 +121,23 @@ class SLSMarkerDetector:
             if len(contour) < 5:
                 continue
 
-            x, y, w, h = cv2.boundingRect(contour)
-            # 跳过在任一维度上太小的轮廓
-            if w <= min_size or h <= min_size:
+            # Use contour area as size filter (orientation-independent).
+            # boundingRect w/h fails for highly elliptical circles at
+            # steep perspective angles (minor axis < min_size despite
+            # the circle being large enough).
+            area = abs(cv2.contourArea(contour))
+            # Min area = circle with diameter = min_size
+            if area <= math.pi * (min_size / 2.0) ** 2:
                 continue
 
-            area = abs(cv2.contourArea(contour))
             length = cv2.arcLength(contour, True)
             # 跳过退化轮廓(弧长为零)
             if length == 0.0:
                 continue
-            # 圆形度检查：area/length > length / (4*pi) * 0.7
-            if area / length <= length / (4.0 * math.pi) * 0.7:
+            # Circularity check: lowered from 0.7 to 0.35 to allow
+            # extremely elliptical circles at steep perspective angles
+            # (up to ~10:1 axis ratio, i.e. cos(84 deg)).
+            if area / length <= length / (4.0 * math.pi) * 0.35:
                 continue
 
             ellipse = cv2.fitEllipse(contour)

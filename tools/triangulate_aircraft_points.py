@@ -46,7 +46,8 @@ class BoardPoseEstimator:
     def __init__(self, K: np.ndarray, dist: np.ndarray,
                  board_yaml: str = "configs/board_points.yaml",
                  circle_interval: float = 25.0,
-                 large_thresh: float = 0.55):
+                 large_thresh: float = 0.55,
+                 use_blob: bool = False):
         self.K = K.astype(np.float64)
         self.dist = np.asarray(dist, dtype=np.float64).ravel()
         with open(board_yaml, encoding='utf-8') as f:
@@ -55,6 +56,7 @@ class BoardPoseEstimator:
         self.pt_ids = list(board['points'].keys())
         self.interval = circle_interval
         self.thresh = large_thresh
+        self.use_blob = use_blob
 
     def process_image(self, img: np.ndarray
                       ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray],
@@ -66,9 +68,18 @@ class BoardPoseEstimator:
             rvec/tvec: 原始PnP结果 (C_T_G), 用于cv2.projectPoints
         """
         ci = CalibImage(name='tmp', image=img, selected=True)
-        calib = Calibrator()
-        calib.extract_circles([ci], only_selected=False, smooth=True, debug=False)
-        ci.create_display_circles()
+
+        if self.use_blob:
+            from sls_calib.board_detector import BoardDetector
+            bd = BoardDetector()
+            markers = bd.detect(img)
+            # Convert to CalibImage.circles format: [((cx,cy), area), ...]
+            ci.circles = [((cx, cy), area) for (cx, cy), area in markers]
+            ci.create_display_circles()
+        else:
+            calib = Calibrator()
+            calib.extract_circles([ci], only_selected=False, smooth=True, debug=False)
+            ci.create_display_circles()
 
         # Auto-tune: try thresholds, pick best (high assigned, low RMSE)
         best_score, best_t = -1, self.thresh
@@ -789,6 +800,8 @@ def main():
                    help='Outlier view reprojection error threshold (px)')
     p.add_argument('--threshold', type=float, default=0.0,
                    help='Large circle detection threshold (0=auto-tune)')
+    p.add_argument('--blob', action='store_true',
+                   help='Use blob detector for board circles (recommended for 20mm)')
     args = p.parse_args()
 
     os.makedirs('output', exist_ok=True)
@@ -819,7 +832,8 @@ def main():
         print("Need at least 3 images (5-7 recommended)"); sys.exit(1)
 
     # 初始化
-    board_est = BoardPoseEstimator(K, dist, large_thresh=args.threshold)
+    board_est = BoardPoseEstimator(K, dist, large_thresh=args.threshold,
+                                    use_blob=args.blob)
     gui = AircraftTriangulationGUI(images, image_paths, board_est, K, dist)
 
     # 步骤1: 标定板PnP
