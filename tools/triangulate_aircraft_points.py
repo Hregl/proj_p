@@ -397,13 +397,31 @@ class AircraftTriangulationGUI:
             elif ord('1') <= key <= ord('9'):
                 idx = key - ord('1')
                 if idx < self.point_count and pending is not None:
-                    # 转回原始像素坐标
+                    # Convert display coords to original pixel coords
                     orig_x = pending[0] / scale
                     orig_y = pending[1] / scale
-                    frame_obs[idx] = (orig_x, orig_y)
+
+                    # Sub-pixel refinement
+                    from sls_calib.point_refiner import PointRefiner
+                    refiner = PointRefiner()
+                    refined = refiner.refine(
+                        self.images[img_idx], orig_x, orig_y, debug=False)
+
+                    if refined and refined['offset_px'] < 30:
+                        use_x, use_y = refined['pixel_x'], refined['pixel_y']
+                        conf = refined['confidence']
+                        off = refined['offset_px']
+                        print(f"    [{idx+1}] {self.point_names[idx]}: "
+                              f"refined ({use_x:.1f}, {use_y:.1f}) "
+                              f"offset={off:.1f}px conf={conf:.2f}")
+                    else:
+                        use_x, use_y = orig_x, orig_y
+                        print(f"    [{idx+1}] {self.point_names[idx]}: "
+                              f"raw click ({orig_x:.0f}, {orig_y:.0f}) "
+                              f"(refinement failed)")
+
+                    frame_obs[idx] = (use_x, use_y)
                     pending = None
-                    n = self.point_names[idx]
-                    print(f"    [{idx+1}] {n} -> ({orig_x:.0f}, {orig_y:.0f})")
                     redraw()
                     cv2.imshow(window, display_img)
 
@@ -452,7 +470,7 @@ class AircraftTriangulationGUI:
 
     # ------------------------------------------------------------------
     def _save_frame_labels(self, img_idx: int, pts_2d: List[Tuple[float, float]]):
-        """保存单帧标注为YAML。"""
+        """Save per-frame annotations as YAML with refinement metadata."""
         img_name = Path(self.image_paths[img_idx]).stem
         out_dir = Path("annotations/aircraft_2d")
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -460,16 +478,19 @@ class AircraftTriangulationGUI:
 
         data = {
             'image': Path(self.image_paths[img_idx]).name,
-            'point_count': len(pts_2d),
+            'point_count': sum(1 for px, py in pts_2d if px >= 0),
             'points': {}
         }
         for j, (px, py) in enumerate(pts_2d):
             name = self.point_names[j] if j < len(self.point_names) else f"P{j+1}"
+            visible = px >= 0
             data['points'][name] = {
                 'pixel_x': float(px),
                 'pixel_y': float(py),
+                'source': 'subpixel_refined',  # PointRefiner applied at click time
+                'visible': visible,
             }
-        data['source'] = 'manual_label'
+        data['source'] = 'subpixel_refined'
 
         with open(out_path, 'w', encoding='utf-8') as f:
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
