@@ -17,29 +17,17 @@ def load_csv_points(filepath):
 def main():
     import argparse
     p = argparse.ArgumentParser(description='Board PnP pose estimation')
-    p.add_argument('--config', default='configs/experiment_config.yaml')
+    p.add_argument('--config', required=True,
+                   help='Camera config (e.g. configs/cameras/camera_20mm_far.yaml)')
     p.add_argument('--board-2d', default='annotations/board_2d/points.csv')
     p.add_argument('--board-3d', default='configs/board_points.yaml')
     p.add_argument('--output', '-o', default='output/board_pose.csv')
     args = p.parse_args()
 
-    # 读配置
-    try:
-        with open(args.config, encoding='utf-8') as f: exp = yaml.safe_load(f)
-    except FileNotFoundError:
-        print(f'Config file not found: {args.config}'); sys.exit(1)
-
-    cal = exp.get('calibration', {})
-    try:
-        K = np.array([[cal['fx'],0,cal['cx']],
-                       [0,cal['fy'],cal['cy']],
-                       [0,0,1]], dtype=np.float64)
-        dist = np.array(cal['dist'], dtype=np.float64)
-    except KeyError as e:
-        print(f'Config file missing required fields: {e} (need fx,fy,cx,cy,dist)'); sys.exit(1)
-    # 验证K矩阵合理性
-    if K[0,0] <= 0 or K[1,1] <= 0:
-        print(f'K matrix anomaly: fx={K[0,0]}, fy={K[1,1]}'); sys.exit(1)
+    # Load camera config
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from sls_calib.config_validator import load_camera_config
+    _, K, dist = load_camera_config(args.config)
 
     # 读3D点
     try:

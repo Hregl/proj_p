@@ -1,36 +1,44 @@
-"""阶段2: 检测标定板圆点 → 输出2D坐标"""
-import sys, yaml, cv2, numpy as np
+"""Detect calibration board circles → output 2D coordinates."""
+import sys, cv2, numpy as np
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from sls_calib import CalibImage, Calibrator
+from sls_calib.config_validator import load_camera_config, validate_image_size
+from sls_calib.board_detector import detect_and_assign_board
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(description='Detect calibration board pattern points')
+    p = argparse.ArgumentParser(
+        description='Detect calibration board pattern points')
     p.add_argument('image', help='Calibration board image')
-    p.add_argument('--interval', type=float, default=35, help='Circle spacing (mm)')
-    p.add_argument('--threshold', type=float, default=0.55, help='Large circle threshold')
-    p.add_argument('--output', '-o', default='annotations/board_2d/points.csv')
+    p.add_argument('--config', required=True,
+                   help='Camera config (e.g. configs/cameras/camera_20mm_far.yaml)')
+    p.add_argument('--output', '-o', default=None,
+                   help='Output CSV (auto-generated if not set)')
     args = p.parse_args()
 
+    cfg, K, dist = load_camera_config(args.config)
+
     img = cv2.imread(args.image)
-    if img is None: print(f'Cannot read: {args.image}'); sys.exit(1)
+    if img is None:
+        print(f'Cannot read: {args.image}'); sys.exit(1)
 
-    ci = CalibImage(name='board', image=img, selected=True)
-    calib = Calibrator()
-    calib.extract_circles([ci], only_selected=False, smooth=True, debug=False)
-    ci.create_display_circles()
-    err = ci.find_circle_indices(args.interval, debug=False, large_circle_threshold=args.threshold)
-    if err: print(f'Error: {err}'); sys.exit(1)
+    validate_image_size(img, args.config)
 
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output, 'w') as f:
+    result = detect_and_assign_board(img, K, dist)
+
+    if not result.success:
+        print(f'Detection failed: {result}')
+        sys.exit(1)
+
+    out_path = args.output or f'output/{Path(args.image).stem}_board2d.csv'
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, 'w') as f:
         f.write('point_id,u,v\n')
-        for i, ((px,py),(wx,wy,wz),ok,_) in enumerate(ci.circle_array):
-            if ok:
-                f.write(f'B{i+1:03d},{px:.3f},{py:.3f}\n')
+        for i, (px, py) in enumerate(result.image_points):
+            f.write(f'B{i+1:03d},{px:.3f},{py:.3f}\n')
 
-    valid = sum(1 for _,_,ok,_ in ci.circle_array if ok)
-    print(f'Detection complete: {valid}/99 valid points -> {args.output}')
+    print(f'Detection complete: {result.assigned_count}/{result.detected_count} '
+          f'valid points, RMSE={result.assignment_rmse:.3f}px -> {out_path}')
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    main()

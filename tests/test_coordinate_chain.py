@@ -329,7 +329,7 @@ def test_validation():
     py = sys.executable  # use same Python as test
     r = subprocess.run(
         [py, 'tools/estimate_aircraft_pose.py',
-         '--config', 'configs/camera_20mm_far.yaml',
+         '--config', 'configs/cameras/camera_20mm_far.yaml',
          '--aircraft-2d',
          'annotations/aircraft_2d/Pic_2026_07_09_193004_131_points.yaml',
          '--aircraft-3d', 'configs/aircraft_points_G_reference.yaml',
@@ -341,7 +341,7 @@ def test_validation():
     # Try with B-frame points (should succeed with inliers)
     r2 = subprocess.run(
         [py, 'tools/estimate_aircraft_pose.py',
-         '--config', 'configs/camera_20mm_far.yaml',
+         '--config', 'configs/cameras/camera_20mm_far.yaml',
          '--aircraft-2d',
          'annotations/aircraft_2d/Pic_2026_07_09_193004_131_points.yaml',
          '--aircraft-3d', 'configs/aircraft_points_B.yaml',

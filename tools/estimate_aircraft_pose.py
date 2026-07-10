@@ -1,22 +1,20 @@
-"""飞机 PnP 位姿估计: 根据3D点+2D标注求解飞机相对相机的姿态。"""
+"""Aircraft PnP pose estimation."""
 import sys, yaml, cv2, numpy as np
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def main():
     import argparse
     p = argparse.ArgumentParser(description='Aircraft PnP pose estimation')
-    p.add_argument('--config', default='configs/experiment_config.yaml')
+    p.add_argument('--config', required=True,
+                   help='Camera config (e.g. configs/cameras/camera_20mm_far.yaml)')
     p.add_argument('--aircraft-3d', default='configs/aircraft_points.yaml')
     p.add_argument('--aircraft-2d', required=True, help='Aircraft 2D annotation YAML')
     p.add_argument('--output', '-o', default='output/aircraft_pose.csv')
     args = p.parse_args()
 
-    with open(args.config, encoding='utf-8') as f: exp = yaml.safe_load(f)
-    cal = exp['calibration']
-    K = np.array([[cal['fx'], 0, cal['cx']],
-                   [0, cal['fy'], cal['cy']],
-                   [0, 0, 1]], dtype=np.float64)
-    dist = np.array(cal['dist'], dtype=np.float64)
+    from sls_calib.config_validator import load_camera_config
+    _, K, dist = load_camera_config(args.config)
 
     with open(args.aircraft_3d, encoding='utf-8') as f: ac3d = yaml.safe_load(f)
 
