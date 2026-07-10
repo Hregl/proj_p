@@ -34,6 +34,8 @@ def build_B_frame(points_G: dict) -> tuple:
 
     Returns:
         (origin_G, x_B_G, y_B_G, z_B_G, G_R_B)
+        where G_R_B = [x_B_G | y_B_G | z_B_G] maps B-frame vectors to G-frame.
+        z_B_G = X x Y points upward (away from belly, toward back).
     """
     nose = np.array(points_G[POINT_NAMES['nose']])
     left = np.array(points_G[POINT_NAMES['left_wing']])
@@ -61,7 +63,8 @@ def build_B_frame(points_G: dict) -> tuple:
     # --- Z_B = X x Y (points UP from board, away from belly) ---
     # B-frame is right-handed: X=nose, Y=right, Z=XxY=up.
     # The aircraft belly faces DOWN (-Z_G), which is -Z_B.
-    # Document: 'z_axis: toward belly (belly = -Z_B direction)'
+    # Z_B = X_B x Y_B points upward (away from belly, toward back/ceiling).
+    # Belly = -Z_B direction. This is right-handed: X=nose, Y=right, Z=up.
     z_B_G = np.cross(x_B_G, y_B_G)
 
     # Verify Y_B points left -> right.
@@ -156,6 +159,20 @@ def main():
     if z_vals:
         print(f"\n  Z_B range: {min(z_vals):.1f} ~ {max(z_vals):.1f} mm (spread {max(z_vals)-min(z_vals):.1f} mm)")
 
+    # --- Verify: G → B → G roundtrip ---
+    max_rt_err = 0.0
+    for name, p_G in points_G.items():
+        if name not in points_B:
+            continue
+        p_B = np.array([points_B[name]['x_mm'], points_B[name]['y_mm'],
+                        points_B[name]['z_mm']])
+        p_G_rt = G_R_B @ p_B + origin_G
+        err = float(np.linalg.norm(p_G_rt - p_G))
+        if err > max_rt_err:
+            max_rt_err = err
+    print(f"\n  G->B->G roundtrip max error: {max_rt_err:.4f} mm "
+          f"({'OK' if max_rt_err < 0.01 else 'FAIL'})")
+
     # --- Save B-frame file ---
     b_data = {
         'aircraft_name': 'model_jet',
@@ -164,13 +181,13 @@ def main():
         'origin_definition': 'wing-root center (spine point)',
         'x_axis': 'tail -> nose',
         'y_axis': 'left wing -> right wing',
-        'z_axis': 'toward belly (belly = -Z_B, Z_B = XxY points up)',
+        'z_axis': 'Z_B = X_B x Y_B points upward (away from belly). Belly = -Z_B.',
         'euler_convention': 'ZYX (yaw-pitch-roll)',
         'point_count': len(points_B),
         'note': ('Converted from G-frame triangulation. '
                  'B-frame origin at spine, X along fuselage axis, '
                  'Y across wingspan, Z toward belly.'),
-        'G_R_B': [[round(float(v), 6) for v in row] for row in G_R_B.T],
+        'G_R_B': [[round(float(v), 6) for v in row] for row in G_R_B],
         'origin_G_mm': [round(float(v), 1) for v in origin_G],
         'points': points_B,
     }

@@ -324,7 +324,7 @@ def test_F():
     with open('configs/aircraft_points_B.yaml', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 
-    G_R_B_cfg = np.array(cfg.get('G_R_B', [[1,0,0],[0,1,0],[0,0,1]])).T
+    G_R_B_cfg = np.array(cfg.get('G_R_B', [[1,0,0],[0,1,0],[0,0,1]]))
     origin_G = np.array(cfg.get('origin_G_mm', [0, 0, 0]))
 
     # Test: project G-frame points through the transform chain

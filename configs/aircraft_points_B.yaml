@@ -4,20 +4,20 @@ unit: mm
 origin_definition: wing-root center (spine point)
 x_axis: tail -> nose
 y_axis: left wing -> right wing
-z_axis: toward belly (belly = -Z_B, Z_B = XxY points up)
+z_axis: Z_B = X_B x Y_B points upward (away from belly). Belly = -Z_B.
 euler_convention: ZYX (yaw-pitch-roll)
 point_count: 6
 note: Converted from G-frame triangulation. B-frame origin at spine, X along fuselage
   axis, Y across wingspan, Z toward belly.
 G_R_B:
 - - 0.992749
-  - -0.044609
-  - -0.111626
-- - 0.044317
+  - 0.044317
+  - 0.111742
+- - -0.044609
   - 0.999005
-  - -0.005096
-- - 0.111742
   - 0.000112
+- - -0.111626
+  - -0.005096
   - 0.993737
 origin_G_mm:
 - 132.1
