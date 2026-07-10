@@ -1,4 +1,4 @@
-board_name: SLS_250x200
+board_name: SLS_300x250
 width_mm: 250
 height_mm: 200
 pattern: 11x9_circle_grid
