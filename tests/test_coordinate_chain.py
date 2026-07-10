@@ -1,56 +1,33 @@
 """
-Coordinate chain verification tests.
+Coordinate chain verification tests (V2 — uses canonical transforms).
 
-Test A: Synthetic data — known angles → project → recover (< 0.01 deg error)
-Test B: Zero pose — B-frame aligned with G-frame (yaw≈pitch≈roll≈0)
-Test C: Single-axis sign — +5 deg on each axis independently
+Tests:
+  A: Synthetic recovery — known camera + aircraft pose → PnP → compose
+  B: Zero pose — B-frame aligned with G-frame
+  C: Single-axis sign — +5 deg on each axis independently
+  D: Non-identity camera rotation — realistic camera pose
+  E: Random poses (100 groups) with pixel noise
+  F: G→B→G point roundtrip
+  Validation: G-frame rejection by estimate_aircraft_pose.py
 
-Pass criteria:
-  - B-frame point library generated (configs/aircraft_points_B.yaml)
-  - estimate_aircraft_pose.py rejects G-frame points
-  - All 3 tests pass with < 0.01 deg error
+All transforms imported from sls_calib/transforms.py.
 """
-import sys, yaml, cv2, numpy as np, math
+import sys, yaml, cv2, numpy as np, math, subprocess
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from sls_calib.transforms import (
+    euler_to_R, R_to_euler, rotation_angle_error,
+    compose_G_T_B, invert_pose, project_points, pnp, add_noise
+)
+
 
 # ====================================================================
-# Utilities
+# Config loading
 # ====================================================================
-
-def euler_to_R(yaw_deg, pitch_deg, roll_deg):
-    """ZYX Euler → rotation matrix."""
-    y, p, r = np.radians(yaw_deg), np.radians(pitch_deg), np.radians(roll_deg)
-    Rz = np.array([[math.cos(y), -math.sin(y), 0],
-                    [math.sin(y),  math.cos(y), 0],
-                    [0, 0, 1]])
-    Ry = np.array([[ math.cos(p), 0, math.sin(p)],
-                    [0, 1, 0],
-                    [-math.sin(p), 0, math.cos(p)]])
-    Rx = np.array([[1, 0, 0],
-                    [0, math.cos(r), -math.sin(r)],
-                    [0, math.sin(r),  math.cos(r)]])
-    return Rz @ Ry @ Rx
-
-
-def R_to_euler(R):
-    """Rotation matrix → ZYX Euler angles (degrees)."""
-    sy = math.sqrt(R[0, 0]**2 + R[1, 0]**2)
-    if sy > 1e-6:
-        rx = math.atan2(R[2, 1], R[2, 2])
-        ry = math.atan2(-R[2, 0], sy)
-        rz = math.atan2(R[1, 0], R[0, 0])
-    else:
-        rx = math.atan2(-R[1, 2], R[1, 1])
-        ry = math.atan2(-R[2, 0], sy)
-        rz = 0.0
-    return np.degrees(rx), np.degrees(ry), np.degrees(rz)
-
 
 def load_configs():
-    """Load K, dist, board points, B-frame points."""
-    with open('configs/camera_25mm_far.yaml', encoding='utf-8') as f:
+    with open('configs/cameras/camera_25mm_far.yaml', encoding='utf-8') as f:
         exp = yaml.safe_load(f)
     cal = exp['calibration']
     K = np.array([[cal['fx'], 0, cal['cx']],
@@ -63,143 +40,79 @@ def load_configs():
     if ac_b.get('coordinate_system') != 'B':
         raise ValueError('B-frame points required')
 
+    b_pts = {}
+    for name, info in ac_b['points'].items():
+        b_pts[name] = np.array([info['x_mm'], info['y_mm'], info['z_mm']],
+                               dtype=np.float64)
+
     with open('configs/board_points.yaml', encoding='utf-8') as f:
         board = yaml.safe_load(f)
-
-    # Extract point arrays
-    b_pts_3d = {}
-    for name, info in ac_b['points'].items():
-        b_pts_3d[name] = np.array([info['x_mm'], info['y_mm'], info['z_mm']],
-                                  dtype=np.float64)
-
-    g_pts_3d = {}
+    g_pts = {}
     for name, info in board['points'].items():
-        if isinstance(info, list):
-            g_pts_3d[name] = np.array(info, dtype=np.float64)
-        else:
-            g_pts_3d[name] = np.array([info['x_mm'], info['y_mm'], info['z_mm']],
-                                      dtype=np.float64)
+        g_pts[name] = (np.array(info, dtype=np.float64) if isinstance(info, list)
+                       else np.array([info['x_mm'], info['y_mm'], info['z_mm']],
+                                     dtype=np.float64))
 
-    return K, dist, b_pts_3d, g_pts_3d
+    return K, dist, b_pts, g_pts
 
 
-def project_points(points_3d, K, dist, R, t):
-    """Project 3D points to 2D image coordinates. Returns {name: (u,v)}."""
-    pts = np.array(list(points_3d.values()), dtype=np.float64)
-    rvec, _ = cv2.Rodrigues(R)
-    proj, _ = cv2.projectPoints(pts, rvec, t, K, dist)
-    result = {}
-    for i, name in enumerate(points_3d.keys()):
-        result[name] = (float(proj[i, 0, 0]), float(proj[i, 0, 1]))
-    return result
-
-
-def pnp(points_2d, points_3d, K, dist):
-    """Run PnP and return (R, t, rmse)."""
-    obj, img = [], []
-    for name in points_2d:
-        if name in points_3d:
-            obj.append(points_3d[name])
-            img.append(points_2d[name])
-
-    if len(obj) < 4:
-        return None, None, 999
-
-    obj_arr = np.array(obj, dtype=np.float64)
-    img_arr = np.array(img, dtype=np.float64)
-
-    ok, rv, tv = cv2.solvePnP(obj_arr, img_arr, K, dist,
-                               flags=cv2.SOLVEPNP_ITERATIVE)
-    if not ok:
-        # Try EPNP with RANSAC
-        ok, rv, tv, _ = cv2.solvePnPRansac(
-            obj_arr, img_arr, K, dist,
-            flags=cv2.SOLVEPNP_EPNP, iterationsCount=500,
-            reprojectionError=5.0, confidence=0.99)
-    if not ok:
-        return None, None, 999
-
-    R, _ = cv2.Rodrigues(rv)
-    proj, _ = cv2.projectPoints(obj_arr, rv, tv, K, dist)
-    errs = np.linalg.norm(proj.reshape(-1, 2) - img_arr, axis=1)
-    rmse = float(np.sqrt(np.mean(errs**2)))
-
-    return R, tv.ravel(), rmse
-
-
-def compose(G_R_C, G_t_C, C_R_B, C_t_B):
-    """Compose G_T_B = inv(C_T_G) * C_T_B."""
-    # C_T_G → G_T_C
-    C_R_G = np.linalg.inv(G_R_C)
-    C_t_G = -C_R_G @ G_t_C
-    G_R_C_mat = np.linalg.inv(C_R_G)
-    G_t_C_vec = -G_R_C_mat @ C_t_G
-
-    # G_R_B = G_R_C * C_R_B
-    G_R_B = G_R_C_mat @ C_R_B
-    return G_R_B
+def compose_and_report(C_R_G, C_t_G, C_R_B, C_t_B):
+    """Compose G_T_B and return (yaw, pitch, roll, total_angle_error vs true)."""
+    G_R_B, G_t_B = compose_G_T_B(C_R_G, C_t_G, C_R_B, C_t_B)
+    yaw, pitch, roll = R_to_euler(G_R_B)
+    return G_R_B, yaw, pitch, roll
 
 
 # ====================================================================
-# Test A: Synthetic data
+# Test A: Synthetic recovery
 # ====================================================================
 
 def test_A():
-    """Set known yaw/pitch/roll, project 2D, recover via PnP+compose."""
+    """Known angles → project → PnP → compose. Error should be 0."""
     print("=" * 60)
-    print("Test A: Synthetic data recovery")
+    print("Test A: Synthetic data recovery (identity camera)")
     print("=" * 60)
 
-    K, dist, b_pts_3d, g_pts_3d = load_configs()
+    K, dist, b_pts, g_pts = load_configs()
 
-    # Known aircraft pose in board frame
-    yaw_true, pitch_true, roll_true = 10.0, 5.0, -3.0
-    G_R_B_true = euler_to_R(yaw_true, pitch_true, roll_true)
-    G_t_B_true = np.array([100.0, 50.0, -20.0])  # arbitrary translation
+    yaw_t, pitch_t, roll_t = 10.0, 5.0, -3.0
+    G_R_B_true = euler_to_R(yaw_t, pitch_t, roll_t)
+    G_t_B_true = np.array([100.0, 50.0, -20.0])
 
-    # Known board pose (board in front of camera)
+    # Camera identity → board in front
     C_R_G = np.eye(3)
-    C_t_G = np.array([0.0, 0.0, 500.0])  # 500mm away
+    C_t_G = np.array([0.0, 0.0, 500.0])
 
-    # Compute C_T_B = C_T_G * G_T_B
+    # C_T_B = C_T_G * G_T_B
     C_R_B = C_R_G @ G_R_B_true
     C_t_B = C_R_G @ G_t_B_true + C_t_G
 
-    # Project B-frame points to camera image
-    b_2d = project_points(b_pts_3d, K, dist, C_R_B, C_t_B)
+    b_2d = project_points(b_pts, K, dist, C_R_B, C_t_B)
+    g_2d = project_points(g_pts, K, dist, C_R_G, C_t_G)
 
-    # Project G-frame points (board) to camera image
-    # Simulate: board PnP gives C_T_G
-    g_2d = project_points(g_pts_3d, K, dist, C_R_G, C_t_G)
+    C_R_G_est, C_t_G_est, g_rmse = pnp(g_2d, g_pts, K, dist)
+    C_R_B_est, C_t_B_est, b_rmse = pnp(b_2d, b_pts, K, dist)
 
-    # --- Recover board pose ---
-    # Board PnP: image ← G-frame
-    G_R_C_est, G_t_C_est, g_rmse = pnp(g_2d, g_pts_3d, K, dist)
-    print(f"\n  Board PnP RMSE: {g_rmse:.4f} px")
+    if C_R_G_est is None or C_R_B_est is None:
+        print("  FAIL: PnP failed"); return False
 
-    # --- Recover aircraft pose ---
-    # Aircraft PnP: image ← B-frame
-    C_R_B_est, C_t_B_est, b_rmse = pnp(b_2d, b_pts_3d, K, dist)
+    G_R_B_est, yaw_e, pitch_e, roll_e = compose_and_report(
+        C_R_G_est, C_t_G_est, C_R_B_est, C_t_B_est)
+
+    yaw_err = abs(yaw_e - yaw_t)
+    pitch_err = abs(pitch_e - pitch_t)
+    roll_err = abs(roll_e - roll_t)
+    angle_err = rotation_angle_error(G_R_B_true, G_R_B_est)
+
+    print(f"  Board   PnP RMSE: {g_rmse:.4f} px")
     print(f"  Aircraft PnP RMSE: {b_rmse:.4f} px")
+    print(f"  True:     yaw={yaw_t:.4f}  pitch={pitch_t:.4f}  roll={roll_t:.4f}")
+    print(f"  Recovered: yaw={yaw_e:.4f}  pitch={pitch_e:.4f}  roll={roll_e:.4f}")
+    print(f"  Euler err: yaw={yaw_err:.4f}  pitch={pitch_err:.4f}  roll={roll_err:.4f}")
+    print(f"  Total angle error: {angle_err:.4f} deg")
 
-    if G_R_C_est is None or C_R_B_est is None:
-        print("  FAIL: PnP failed")
-        return False
-
-    # --- Compose ---
-    G_R_B_est = compose(G_R_C_est, G_t_C_est, C_R_B_est, C_t_B_est)
-    roll_est, pitch_est, yaw_est = R_to_euler(G_R_B_est)
-
-    yaw_err = abs(yaw_est - yaw_true)
-    pitch_err = abs(pitch_est - pitch_true)
-    roll_err = abs(roll_est - roll_true)
-
-    print(f"\n  True:     yaw={yaw_true:.4f}  pitch={pitch_true:.4f}  roll={roll_true:.4f}")
-    print(f"  Recovered: yaw={yaw_est:.4f}  pitch={pitch_est:.4f}  roll={roll_est:.4f}")
-    print(f"  Error:     yaw={yaw_err:.4f}  pitch={pitch_err:.4f}  roll={roll_err:.4f}")
-
-    passed = max(yaw_err, pitch_err, roll_err) < 0.01
-    print(f"\n  {'PASSED' if passed else 'FAILED'} (threshold < 0.01 deg)")
+    passed = max(yaw_err, pitch_err, roll_err) < 0.01 and angle_err < 0.01
+    print(f"  {'PASSED' if passed else 'FAILED'}")
     return passed
 
 
@@ -208,46 +121,30 @@ def test_A():
 # ====================================================================
 
 def test_B():
-    """Align aircraft B-frame with board G-frame. Expect near-zero angles."""
     print("\n" + "=" * 60)
-    print("Test B: Zero pose test")
+    print("Test B: Zero pose (identity camera)")
     print("=" * 60)
 
-    K, dist, b_pts_3d, g_pts_3d = load_configs()
-
-    # B-frame aligned with G-frame: G_R_B = I
+    K, dist, b_pts, g_pts = load_configs()
     G_R_B_true = np.eye(3)
-    G_t_B_true = np.array([0.0, 0.0, 0.0])
-
-    # Board in front of camera
     C_R_G = np.eye(3)
     C_t_G = np.array([0.0, 0.0, 500.0])
-
-    # C_T_B = C_T_G * G_T_B = C_T_G (since G_T_B = I)
     C_R_B = C_R_G @ G_R_B_true
-    C_t_B = C_R_G @ G_t_B_true + C_t_G
+    C_t_B = C_R_G @ np.zeros(3) + C_t_G
 
-    b_2d = project_points(b_pts_3d, K, dist, C_R_B, C_t_B)
-    g_2d = project_points(g_pts_3d, K, dist, C_R_G, C_t_G)
+    b_2d = project_points(b_pts, K, dist, C_R_B, C_t_B)
+    g_2d = project_points(g_pts, K, dist, C_R_G, C_t_G)
 
-    G_R_C_est, G_t_C_est, g_rmse = pnp(g_2d, g_pts_3d, K, dist)
-    C_R_B_est, C_t_B_est, b_rmse = pnp(b_2d, b_pts_3d, K, dist)
+    C_R_G_est, C_t_G_est, _ = pnp(g_2d, g_pts, K, dist)
+    C_R_B_est, C_t_B_est, _ = pnp(b_2d, b_pts, K, dist)
+    if C_R_G_est is None or C_R_B_est is None:
+        print("  FAIL: PnP failed"); return False
 
-    print(f"\n  Board PnP RMSE: {g_rmse:.4f} px")
-    print(f"  Aircraft PnP RMSE: {b_rmse:.4f} px")
-
-    if G_R_C_est is None or C_R_B_est is None:
-        print("  FAIL: PnP failed")
-        return False
-
-    G_R_B_est = compose(G_R_C_est, G_t_C_est, C_R_B_est, C_t_B_est)
-    roll, pitch, yaw = R_to_euler(G_R_B_est)
-
-    print(f"\n  Recovered: yaw={yaw:.4f}  pitch={pitch:.4f}  roll={roll:.4f}")
-    print(f"  Expected:  0.0  0.0  0.0")
-
+    _, yaw, pitch, roll = compose_and_report(
+        C_R_G_est, C_t_G_est, C_R_B_est, C_t_B_est)
+    print(f"  Recovered: yaw={yaw:.4f}  pitch={pitch:.4f}  roll={roll:.4f}")
     passed = max(abs(yaw), abs(pitch), abs(roll)) < 0.01
-    print(f"\n  {'PASSED' if passed else 'FAILED'} (threshold < 0.01 deg)")
+    print(f"  {'PASSED' if passed else 'FAILED'}")
     return passed
 
 
@@ -256,107 +153,243 @@ def test_B():
 # ====================================================================
 
 def test_C():
-    """Test each axis independently: +5 deg should only affect target axis."""
     print("\n" + "=" * 60)
-    print("Test C: Single-axis sign test")
+    print("Test C: Single-axis sign (identity camera)")
     print("=" * 60)
 
-    K, dist, b_pts_3d, g_pts_3d = load_configs()
+    K, dist, b_pts, g_pts = load_configs()
+    C_R_G = np.eye(3)
+    C_t_G = np.array([0.0, 0.0, 500.0])
+    all_ok = True
 
-    tests = [
-        ('yaw +5',   5.0,  0.0,  0.0, 0),  # yaw changes, pitch/roll stay ~0
-        ('pitch +5', 0.0,  5.0,  0.0, 1),  # pitch changes, yaw/roll stay ~0
-        ('roll +5',  0.0,  0.0,  5.0, 2),  # roll changes, yaw/pitch stay ~0
-    ]
+    for label, y, p, r in [('yaw +5', 5, 0, 0),
+                            ('pitch +5', 0, 5, 0),
+                            ('roll +5', 0, 0, 5)]:
+        G_R_B = euler_to_R(y, p, r)
+        C_R_B = C_R_G @ G_R_B
+        C_t_B = C_t_G
+        b_2d = project_points(b_pts, K, dist, C_R_B, C_t_B)
+        g_2d = project_points(g_pts, K, dist, C_R_G, C_t_G)
 
-    all_passed = True
-    for label, y, p, r, target_axis in tests:
-        G_R_B_true = euler_to_R(y, p, r)
-        G_t_B_true = np.array([0.0, 0.0, 0.0])
+        C_R_G_est, C_t_G_est, _ = pnp(g_2d, g_pts, K, dist)
+        C_R_B_est, C_t_B_est, _ = pnp(b_2d, b_pts, K, dist)
+        if C_R_G_est is None or C_R_B_est is None:
+            print(f"  {label}: FAIL (PnP)"); all_ok = False; continue
 
-        C_R_G = np.eye(3)
-        C_t_G = np.array([0.0, 0.0, 500.0])
+        _, yaw, pitch, roll = compose_and_report(
+            C_R_G_est, C_t_G_est, C_R_B_est, C_t_B_est)
+        errs = [abs(yaw-y), abs(pitch-p), abs(roll-r)]
+        ok = max(errs) < 0.01
+        print(f"  {label}: yaw={yaw:+.4f} pitch={pitch:+.4f} roll={roll:+.4f}  "
+              f"errs={[f'{e:.4f}' for e in errs]} {'OK' if ok else 'FAIL'}")
+        if not ok: all_ok = False
 
-        C_R_B = C_R_G @ G_R_B_true
-        C_t_B = C_R_G @ G_t_B_true + C_t_G
-
-        b_2d = project_points(b_pts_3d, K, dist, C_R_B, C_t_B)
-        g_2d = project_points(g_pts_3d, K, dist, C_R_G, C_t_G)
-
-        G_R_C_est, G_t_C_est, _ = pnp(g_2d, g_pts_3d, K, dist)
-        C_R_B_est, C_t_B_est, _ = pnp(b_2d, b_pts_3d, K, dist)
-
-        if G_R_C_est is None or C_R_B_est is None:
-            print(f"  {label}: FAIL (PnP)")
-            all_passed = False
-            continue
-
-        G_R_B_est = compose(G_R_C_est, G_t_C_est, C_R_B_est, C_t_B_est)
-        roll_e, pitch_e, yaw_e = R_to_euler(G_R_B_est)
-        angles = [yaw_e, pitch_e, roll_e]  # [0]=yaw, [1]=pitch, [2]=roll
-
-        errors = [abs(angles[i] - [y, p, r][i]) for i in range(3)]
-        target_err = errors[target_axis]
-        cross_err = sum(errors) - target_err
-
-        print(f"  {label}: yaw={yaw_e:+.4f} pitch={pitch_e:+.4f} roll={roll_e:+.4f}  "
-              f"target_err={target_err:.4f} cross_err={cross_err:.4f}")
-
-        # Target axis should be within 0.01 of expected
-        # Cross axes should be within 0.01 of zero
-        passed = target_err < 0.01 and errors[(target_axis+1)%3] < 0.01 and errors[(target_axis+2)%3] < 0.01
-        if not passed:
-            print(f"    FAILED")
-            all_passed = False
-
-    print(f"\n  {'ALL PASSED' if all_passed else 'SOME FAILED'}")
-    return all_passed
+    print(f"  {'ALL PASSED' if all_ok else 'SOME FAILED'}")
+    return all_ok
 
 
 # ====================================================================
-# Test 1.4: Validation — reject G-frame points
+# Test D: Non-identity camera rotation (NEW — catches the bug!)
+# ====================================================================
+
+def test_D():
+    """Realistic camera pose: board rotated 23/-17/8 deg."""
+    print("\n" + "=" * 60)
+    print("Test D: Non-identity camera rotation (camera yaw=23 pitch=-17 roll=8)")
+    print("=" * 60)
+
+    K, dist, b_pts, g_pts = load_configs()
+
+    # Aircraft pose in board frame
+    yaw_t, pitch_t, roll_t = 10.0, 5.0, -3.0
+    G_R_B_true = euler_to_R(yaw_t, pitch_t, roll_t)
+    G_t_B_true = np.array([100.0, 50.0, -20.0])
+
+    # Camera pose: rotated relative to board
+    C_R_G = euler_to_R(23.0, -17.0, 8.0)
+    C_t_G = np.array([150.0, -80.0, 600.0])
+
+    # Project
+    C_R_B = C_R_G @ G_R_B_true
+    C_t_B = C_R_G @ G_t_B_true + C_t_G
+    b_2d = project_points(b_pts, K, dist, C_R_B, C_t_B)
+    g_2d = project_points(g_pts, K, dist, C_R_G, C_t_G)
+
+    # PnP recovery
+    C_R_G_est, C_t_G_est, _ = pnp(g_2d, g_pts, K, dist)
+    C_R_B_est, C_t_B_est, _ = pnp(b_2d, b_pts, K, dist)
+    if C_R_G_est is None or C_R_B_est is None:
+        print("  FAIL: PnP failed"); return False
+
+    # Compose
+    G_R_B_est, yaw_e, pitch_e, roll_e = compose_and_report(
+        C_R_G_est, C_t_G_est, C_R_B_est, C_t_B_est)
+
+    angle_err = rotation_angle_error(G_R_B_true, G_R_B_est)
+
+    print(f"  True:     yaw={yaw_t:.4f}  pitch={pitch_t:.4f}  roll={roll_t:.4f}")
+    print(f"  Recovered: yaw={yaw_e:.4f}  pitch={pitch_e:.4f}  roll={roll_e:.4f}")
+    print(f"  Total angle error: {angle_err:.4f} deg")
+
+    euler_ok = max(abs(yaw_e-yaw_t), abs(pitch_e-pitch_t), abs(roll_e-roll_t)) < 0.01
+    angle_ok = angle_err < 0.01
+    passed = euler_ok and angle_ok
+    print(f"  Euler {'OK' if euler_ok else 'FAIL'}, Angle {'OK' if angle_ok else 'FAIL'}")
+    print(f"  {'PASSED' if passed else 'FAILED'}")
+    return passed
+
+
+# ====================================================================
+# Test E: Random poses + pixel noise
+# ====================================================================
+
+def test_E():
+    """100 random camera + aircraft poses with 0.1/0.3/0.5 px noise."""
+    print("\n" + "=" * 60)
+    print("Test E: Random poses (100 groups) with pixel noise")
+    print("=" * 60)
+
+    K, dist, b_pts, g_pts = load_configs()
+    rng = np.random.default_rng(42)
+
+    results = {}
+    for sigma in [0.1, 0.3, 0.5]:
+        angle_errs = []
+        for i in range(100):
+            # Random camera pose
+            cam_y, cam_p, cam_r = rng.uniform(-30, 30, 3)
+            C_R_G = euler_to_R(float(cam_y), float(cam_p), float(cam_r))
+            C_t_G = np.array([rng.uniform(-200, 200),
+                              rng.uniform(-200, 200),
+                              rng.uniform(400, 800)])
+
+            # Random aircraft pose
+            ac_y, ac_p, ac_r = rng.uniform(-15, 15, 3)
+            G_R_B_true = euler_to_R(float(ac_y), float(ac_p), float(ac_r))
+
+            # Project
+            C_R_B = C_R_G @ G_R_B_true
+            C_t_B = C_R_G @ np.zeros(3) + C_t_G
+            b_2d_clean = project_points(b_pts, K, dist, C_R_B, C_t_B)
+            g_2d_clean = project_points(g_pts, K, dist, C_R_G, C_t_G)
+
+            # Add noise
+            b_2d_noisy = add_noise(b_2d_clean, sigma, seed=i)
+            g_2d_noisy = add_noise(g_2d_clean, sigma, seed=i+1000)
+
+            # PnP recovery
+            C_R_G_est, C_t_G_est, _ = pnp(g_2d_noisy, g_pts, K, dist)
+            C_R_B_est, C_t_B_est, _ = pnp(b_2d_noisy, b_pts, K, dist)
+            if C_R_G_est is None or C_R_B_est is None:
+                continue
+
+            G_R_B_est, _, _, _ = compose_and_report(
+                C_R_G_est, C_t_G_est, C_R_B_est, C_t_B_est)
+            angle_errs.append(rotation_angle_error(G_R_B_true, G_R_B_est))
+
+        if angle_errs:
+            arr = np.array(angle_errs)
+            results[sigma] = {
+                'n': len(arr), 'mean': np.mean(arr), 'std': np.std(arr),
+                'max': np.max(arr), 'p95': np.percentile(arr, 95)
+            }
+
+    for sigma in sorted(results):
+        r = results[sigma]
+        print(f"  sigma={sigma:.1f}px: n={r['n']:>3}, mean={r['mean']:.4f} deg, "
+              f"std={r['std']:.4f} deg, p95={r['p95']:.4f} deg, max={r['max']:.4f} deg")
+
+    # With sigma=0.1, mean angle error should be < 0.02 deg (~1 arcmin noise floor)
+    # With sigma=0.5, mean angle error should be < 0.10 deg (~6 arcmin, realistic worst)
+    passed = (results.get(0.1, {}).get('mean', 999) < 0.02 and
+              results.get(0.5, {}).get('mean', 999) < 0.10)
+    print(f"  {'PASSED' if passed else 'FAILED'} "
+          f"(sigma=0.1 mean < 0.02 deg, sigma=0.5 mean < 0.10 deg)")
+    return passed
+
+
+# ====================================================================
+# Test F: G→B→G point roundtrip
+# ====================================================================
+
+def test_F():
+    """Convert points G→B→G via transforms, check roundtrip error."""
+    print("\n" + "=" * 60)
+    print("Test F: G->B->G point coordinate roundtrip")
+    print("=" * 60)
+
+    K, dist, b_pts, g_pts = load_configs()
+
+    # Get G→B transform from the B-frame config
+    with open('configs/aircraft_points_B.yaml', encoding='utf-8') as f:
+        cfg = yaml.safe_load(f)
+
+    G_R_B_cfg = np.array(cfg.get('G_R_B', [[1,0,0],[0,1,0],[0,0,1]])).T
+    origin_G = np.array(cfg.get('origin_G_mm', [0, 0, 0]))
+
+    # Test: project G-frame points through the transform chain
+    # G point → B point = G_R_B^T * (P_G - origin)
+    max_err = 0
+    for name in g_pts:
+        if name not in cfg.get('points', {}):
+            continue
+        p_G = g_pts[name]
+        p_B_expected = np.array([
+            cfg['points'][name]['x_mm'],
+            cfg['points'][name]['y_mm'],
+            cfg['points'][name]['z_mm']])
+        # G→B conversion
+        p_B_computed = G_R_B_cfg.T @ (p_G - origin_G)
+        err = float(np.linalg.norm(p_B_computed - p_B_expected))
+        if err > max_err:
+            max_err = err
+        if err > 0.5:
+            print(f"  {name}: roundtrip error = {err:.3f} mm")
+
+    print(f"  Max roundtrip error: {max_err:.4f} mm")
+    passed = max_err < 0.5
+    print(f"  {'PASSED' if passed else 'FAILED'} (threshold < 0.5 mm)")
+    return passed
+
+
+# ====================================================================
+# Validation test
 # ====================================================================
 
 def test_validation():
-    """Verify that estimate_aircraft_pose.py rejects G-frame points."""
+    """Verify G-frame rejection and B-frame acceptance."""
     print("\n" + "=" * 60)
-    print("Test 1.4: G-frame rejection")
+    print("Test: G-frame rejection / B-frame acceptance")
     print("=" * 60)
 
-    import subprocess
+    py = sys.executable
 
-    # Try with G-frame points (should fail with ValueError)
-    py = sys.executable  # use same Python as test
     r = subprocess.run(
         [py, 'tools/estimate_aircraft_pose.py',
          '--config', 'configs/cameras/camera_25mm_far.yaml',
+         '--aircraft-3d', 'configs/aircraft_points_G_reference.yaml',
          '--aircraft-2d',
          'annotations/aircraft_2d/Pic_2026_07_09_193004_131_points.yaml',
-         '--aircraft-3d', 'configs/aircraft_points_G_reference.yaml',
          '-o', 'output/test_g_reject.csv'],
         capture_output=True, text=True)
-    g_rejected = ('aircraft body frame (B)' in r.stdout
-                  or 'aircraft body frame (B)' in r.stderr)
+    g_ok = 'aircraft body frame (B)' in (r.stdout + r.stderr)
 
-    # Try with B-frame points (should succeed with inliers)
     r2 = subprocess.run(
         [py, 'tools/estimate_aircraft_pose.py',
          '--config', 'configs/cameras/camera_25mm_far.yaml',
+         '--aircraft-3d', 'configs/aircraft_points_B.yaml',
          '--aircraft-2d',
          'annotations/aircraft_2d/Pic_2026_07_09_193004_131_points.yaml',
-         '--aircraft-3d', 'configs/aircraft_points_B.yaml',
          '-o', 'output/test_b_accept.csv'],
         capture_output=True, text=True)
-    b_accepted = 'inliers' in r2.stdout
+    b_ok = 'inliers' in r2.stdout
 
-    print(f"  G-frame points rejected: {'PASS' if g_rejected else 'FAIL'}")
-    print(f"  B-frame points accepted: {'PASS' if b_accepted else 'FAIL'}")
-
-    # Cleanup
     for f in ['output/test_g_reject.csv', 'output/test_b_accept.csv']:
         Path(f).unlink(missing_ok=True)
 
-    return g_rejected and b_accepted
+    print(f"  G-frame rejected: {'PASS' if g_ok else 'FAIL'}")
+    print(f"  B-frame accepted: {'PASS' if b_ok else 'FAIL'}")
+    return g_ok and b_ok
 
 
 # ====================================================================
@@ -364,12 +397,19 @@ def test_validation():
 # ====================================================================
 
 if __name__ == '__main__':
-    results = {
-        'Test A (synth recovery)': test_A(),
-        'Test B (zero pose)': test_B(),
-        'Test C (single axis)': test_C(),
-        'Test 1.4 (validation)': test_validation(),
-    }
+    tests = [
+        ('A: synthetic (identity cam)', test_A),
+        ('B: zero pose', test_B),
+        ('C: single-axis sign', test_C),
+        ('D: non-identity camera rotation', test_D),
+        ('E: random poses + noise', test_E),
+        ('F: G->B->G roundtrip', test_F),
+        ('Validation', test_validation),
+    ]
+
+    results = {}
+    for name, fn in tests:
+        results[name] = fn()
 
     print("\n" + "=" * 60)
     print("SUMMARY")
@@ -378,6 +418,5 @@ if __name__ == '__main__':
     for name, ok in results.items():
         print(f"  {name}: {'PASSED' if ok else 'FAILED'}")
         if not ok: all_ok = False
-
     print(f"\n  Overall: {'ALL PASSED' if all_ok else 'SOME FAILED'}")
     sys.exit(0 if all_ok else 1)
