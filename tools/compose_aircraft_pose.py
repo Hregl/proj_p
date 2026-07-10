@@ -39,9 +39,8 @@ def main():
     p.add_argument('--output', '-o', default='output/final_pose.csv')
     args = p.parse_args()
 
-    with open(args.config, encoding='utf-8') as f: exp = yaml.safe_load(f)
-
     # board_to_camera: C_T_G
+    # (compose does not need camera params — only combines PnP outputs)
     C_R_G, C_t_G, board_rmse = load_csv_pose(args.board_pose)
     if C_R_G is None: print('Board PnP result invalid'); sys.exit(1)
 

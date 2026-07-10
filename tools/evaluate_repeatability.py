@@ -68,15 +68,32 @@ def main():
         print("No valid measurements after filtering.")
         sys.exit(1)
 
+    n_total = len(results) + len(excluded)
+
     yaws = np.array([r['yaw_deg'] for r in results])
     pitches = np.array([r['pitch_deg'] for r in results])
     rolls = np.array([r['roll_deg'] for r in results])
     b_rmse = np.array([r['board_rmse'] for r in results])
     a_rmse = np.array([r['aircraft_rmse'] for r in results])
 
+    # Yaw wrap-around check: detect if yaw values span > 300 deg
+    yaw_range = yaws.max() - yaws.min()
+    yaw_wrapped = yaw_range > 300
+    if yaw_wrapped:
+        # Unwrap: shift values > 0 to negative if mean is near 0
+        for i in range(len(yaws)):
+            while yaws[i] - np.mean(yaws) > 180:
+                yaws[i] -= 360
+            while yaws[i] - np.mean(yaws) < -180:
+                yaws[i] += 360
+
     def stats(arr, name):
         return {
-            'mean': np.mean(arr), 'std': np.std(arr),
+            'mean': np.mean(arr),
+            'std': np.std(arr, ddof=1),  # sample std
+            'median': np.median(arr),
+            'mad': np.median(np.abs(arr - np.median(arr))),
+            'p95': np.percentile(np.abs(arr - np.mean(arr)), 95),
             'min': np.min(arr), 'max': np.max(arr),
             'range': np.max(arr) - np.min(arr),
         }
@@ -85,21 +102,38 @@ def main():
     sp = stats(pitches, 'pitch')
     sr = stats(rolls, 'roll')
 
+    # Total rotation angle error (relative to mean rotation)
+    from sls_calib.transforms import euler_to_R, rotation_angle_error
+    R_mean = euler_to_R(sy['mean'], sp['mean'], sr['mean'])
+    angle_errs = []
+    for r in results:
+        R_i = euler_to_R(r['yaw_deg'], r['pitch_deg'], r['roll_deg'])
+        angle_errs.append(rotation_angle_error(R_mean, R_i))
+    angle_errs = np.array(angle_errs)
+
     # Display
     n = len(results)
+    fail_rate = (n_total - n) / n_total * 100 if n_total > 0 else 0
     print(f"\n{'='*60}")
-    print(f"Repeatability Report: {args.group_name} ({n} measurements)")
+    print(f"Repeatability Report: {args.group_name}")
+    print(f"  Total samples: {n_total} | Valid: {n} | Excluded: {len(excluded)} "
+          f"({fail_rate:.0f}% fail rate)")
     print(f"{'='*60}")
 
-    print(f"\n{'':>12} {'mean':>8} {'std':>8} {'min':>8} {'max':>8} {'range':>8}")
-    print(f"  {'yaw':>8}  {sy['mean']:>7.3f}° {sy['std']:>7.3f}° {sy['min']:>7.3f}° {sy['max']:>7.3f}° {sy['range']:>7.3f}°")
-    print(f"  {'pitch':>8}  {sp['mean']:>7.3f}° {sp['std']:>7.3f}° {sp['min']:>7.3f}° {sp['max']:>7.3f}° {sp['range']:>7.3f}°")
-    print(f"  {'roll':>8}  {sr['mean']:>7.3f}° {sr['std']:>7.3f}° {sr['min']:>7.3f}° {sr['max']:>7.3f}° {sr['range']:>7.3f}°")
+    if yaw_wrapped:
+        print(f"  NOTE: yaw wrap detected (range={yaw_range:.0f} deg), values unwrapped")
 
-    # In arcminutes
-    print(f"\n  {'yaw':>8}  {sy['std']*60:>5.1f} arcmin std (range {sy['range']*60:.0f} arcmin)")
-    print(f"  {'pitch':>8}  {sp['std']*60:>5.1f} arcmin std (range {sp['range']*60:.0f} arcmin)")
-    print(f"  {'roll':>8}  {sr['std']*60:>5.1f} arcmin std (range {sr['range']*60:.0f} arcmin)")
+    print(f"\n{'':>12} {'mean':>8} {'std':>8} {'median':>8} {'MAD':>8} {'p95':>8} {'min':>8} {'max':>8}")
+    for label, s in [('yaw', sy), ('pitch', sp), ('roll', sr)]:
+        print(f"  {label:>8}  {s['mean']:>7.3f}° {s['std']:>7.3f}° "
+              f"{s['median']:>7.3f}° {s['mad']:>7.3f}° {s['p95']:>7.3f}° "
+              f"{s['min']:>7.3f}° {s['max']:>7.3f}°")
+
+    print(f"\n  {'yaw':>8}  {sy['std']*60:>5.1f} arcmin std (sample, ddof=1)")
+    print(f"  {'pitch':>8}  {sp['std']*60:>5.1f} arcmin std")
+    print(f"  {'roll':>8}  {sr['std']*60:>5.1f} arcmin std")
+    print(f"  {'total angle':>8}  {np.std(angle_errs, ddof=1)*60:>5.1f} arcmin std "
+          f"(p95={np.percentile(angle_errs,95)*60:.1f} arcmin)")
 
     # Per-measurement table
     print(f"\n{'Measurement':<30} {'yaw':>7} {'pitch':>7} {'roll':>7} {'bRMSE':>7} {'aRMSE':>7}")
