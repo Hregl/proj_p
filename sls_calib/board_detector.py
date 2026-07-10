@@ -166,16 +166,17 @@ class BoardDetector:
 class BoardDetectionResult:
     """Structured output from detect_and_assign_board()."""
     def __init__(self):
-        self.point_ids: List[str] = []
+        self.point_ids: List[str] = []         # Board point IDs (B001, B002, ...)
         self.image_points: List[Tuple[float, float]] = []  # (u, v)
         self.object_points: List[Tuple[float, float, float]] = []  # (x, y, z)
         self.detected_count: int = 0
         self.assigned_count: int = 0
         self.assignment_rmse: float = 0.0
-        self.orientation: str = ''  # 'normal' or 'flipped'
+        self.orientation: str = ''
         self.rvec = None
         self.tvec = None
         self.success: bool = False
+        self.inlier_ratio: float = 0.0
 
     def __repr__(self):
         return (f"BoardDetectionResult(assigned={self.assigned_count}/{self.detected_count}, "
@@ -267,14 +268,35 @@ def detect_and_assign_board(image: np.ndarray,
     if best_arr is None:
         return result
 
-    # Step 3: Extract results
-    for (px, py), (wx, wy, wz), ok, _ in best_arr:
+    # Step 3: Extract results with correct point IDs.
+    # The circle_array is 99 elements indexed by gy*11+gx.
+    # Point ID B001 = grid(0,0), B002 = grid(1,0), ..., B{idx+1:03d}.
+    total_cells = 99
+    for idx, ((px, py), (wx, wy, wz), ok, _) in enumerate(best_arr):
         if ok:
+            point_id = f'B{idx + 1:03d}'
+            result.point_ids.append(point_id)
             result.image_points.append((px, py))
             result.object_points.append((wx, wy, wz))
-    result.assigned_count = len(result.image_points)
-    result.success = result.assigned_count >= 4
-    result.orientation = 'normal'
+
+    result.assigned_count = len(result.point_ids)
+
+    # Quality assessment
+    # Detect which orientation was chosen based on the circle_array pattern
+    # (not just hardcoded 'normal')
+    n_top_rows = sum(1 for i in range(11) if best_arr[i][2])  # gy=0 row
+    n_bot_rows = sum(1 for i in range(88, 99) if best_arr[i][2])  # gy=8 row
+    if n_bot_rows > n_top_rows:
+        result.orientation = 'near_pair_bottom'
+    else:
+        result.orientation = 'near_pair_top'
+
+    # Success criteria (experiment-grade):
+    # - >= 80 out of 99 points assigned (board mostly visible)
+    # - assignment RMSE <= 2.0 px (full-set IPPE RMSE, not RANSAC-inlier RMSE)
+    result.success = (result.assigned_count >= 80 and
+                      result.assignment_rmse <= 2.0)
+    result.inlier_ratio = result.assigned_count / total_cells if total_cells > 0 else 0.0
 
     return result
 

@@ -48,7 +48,20 @@ def main():
             obj.append(pts3d[idx])
             img.append(pts2d[i])
 
-    if len(obj) < 4: print(f'Insufficient correspondences: {len(obj)}'); sys.exit(1)
+    if len(obj) < 4:
+        print(f'Insufficient correspondences: {len(obj)} '
+              f'(matched {len(obj)}/{len(pt_ids_2d)} 2D point IDs to 3D points)')
+        sys.exit(1)
+
+    # Quality check
+    if len(obj) < 80:
+        print(f'WARNING: only {len(obj)}/{len(pt_ids_2d)} points matched '
+              f'(board may be partially occluded or detection failed)')
+    if len(obj) < len(pt_ids_2d):
+        unmatched = [pid for pid in pt_ids_2d if pid not in board['points']]
+        if unmatched:
+            print(f'WARNING: {len(unmatched)} point IDs not in board config: '
+                  f'{unmatched[:5]}{"..." if len(unmatched)>5 else ""}')
 
     obj_arr = np.array(obj, dtype=np.float64)
     img_arr = np.array(img, dtype=np.float64)

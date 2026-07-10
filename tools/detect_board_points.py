@@ -34,11 +34,10 @@ def main():
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'w') as f:
         f.write('point_id,u,v\n')
-        for i, (px, py) in enumerate(result.image_points):
-            f.write(f'B{i+1:03d},{px:.3f},{py:.3f}\n')
+        for pid, (px, py) in zip(result.point_ids, result.image_points):
+            f.write(f'{pid},{px:.3f},{py:.3f}\n')
 
-    print(f'Detection complete: {result.assigned_count}/{result.detected_count} '
-          f'valid points, RMSE={result.assignment_rmse:.3f}px -> {out_path}')
+    print(f'Detection complete: {result} -> {out_path}')
 
 if __name__ == '__main__':
     main()

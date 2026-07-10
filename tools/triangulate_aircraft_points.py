@@ -615,9 +615,11 @@ class AircraftTriangulationGUI:
                 print(f"  {name}: insufficient observations ({len(obs_list)} views), skipping")
                 continue
 
-            # 构建投影矩阵列表
-            P_list = []  # 每个视图的 3x4 投影矩阵 P = K[R|t] (world→image)
-            pts_2d_list = []
+            # Undistort 2D points to normalized coordinates, then triangulate
+            # with P = [R|t] (no K). This correctly handles lens distortion
+            # unlike the old K[R|t] approach which ignored dist.
+            P_norm_list = []  # 3x4 projection [R|t] in normalized camera coords
+            pts_norm_list = []  # undistorted normalized 2D points (x/z, y/z)
             view_indices = []
 
             for img_idx, u, v in obs_list:
@@ -630,33 +632,40 @@ class AircraftTriangulationGUI:
                     C_R_G = np.linalg.inv(G_R_C)
                     C_t_G = -C_R_G @ G_t_C
 
-                    # P = K [R|t]
-                    P = self.K @ np.hstack([C_R_G, C_t_G.reshape(3, 1)])
-                    P_list.append(P)
-                    pts_2d_list.append([u, v])
+                    # Projection without K: normalized coords
+                    P_norm_list.append(np.hstack([C_R_G, C_t_G.reshape(3, 1)]))
+                    # Undistort: pixel → normalized (ideal) coords
+                    pts_undist = cv2.undistortPoints(
+                        np.array([[[u, v]]], dtype=np.float32),
+                        self.K, self.dist, P=None)
+                    pts_norm_list.append(pts_undist[0, 0].tolist())
                     view_indices.append(img_idx)
 
-            if len(P_list) < 2:
+            if len(P_norm_list) < 2:
                 print(f"  {name}: insufficient valid projection matrices, skipping")
                 continue
 
-            # 多视图三角测量: 两两组合取中位数(抗噪)
-            # cv2.triangulatePoints(P1, P2, pts1, pts2) — 4个独立参数
-            if len(P_list) == 2:
-                pts_a = np.array([[pts_2d_list[0][0]], [pts_2d_list[0][1]]], dtype=np.float32)
-                pts_b = np.array([[pts_2d_list[1][0]], [pts_2d_list[1][1]]], dtype=np.float32)
-                pts4d = cv2.triangulatePoints(P_list[0], P_list[1], pts_a, pts_b)
+            # Triangulation in normalized coordinates
+            if len(P_norm_list) == 2:
+                pts_a = np.array([[pts_norm_list[0][0]], [pts_norm_list[0][1]]],
+                                 dtype=np.float32)
+                pts_b = np.array([[pts_norm_list[1][0]], [pts_norm_list[1][1]]],
+                                 dtype=np.float32)
+                pts4d = cv2.triangulatePoints(
+                    P_norm_list[0], P_norm_list[1], pts_a, pts_b)
             else:
-                # >2视图: 两两三角测量取中位数
                 tri_pts = []
-                for a in range(len(P_list)):
-                    for b in range(a+1, len(P_list)):
-                        pts_a = np.array([[pts_2d_list[a][0]], [pts_2d_list[a][1]]], dtype=np.float32)
-                        pts_b = np.array([[pts_2d_list[b][0]], [pts_2d_list[b][1]]], dtype=np.float32)
+                for a in range(len(P_norm_list)):
+                    for b in range(a+1, len(P_norm_list)):
+                        pts_a = np.array([[pts_norm_list[a][0]],
+                                          [pts_norm_list[a][1]]], dtype=np.float32)
+                        pts_b = np.array([[pts_norm_list[b][0]],
+                                          [pts_norm_list[b][1]]], dtype=np.float32)
                         try:
-                            p4d = cv2.triangulatePoints(P_list[a], P_list[b], pts_a, pts_b)
-                            p3d = p4d[:3, 0] / p4d[3, 0]
-                            tri_pts.append(p3d)
+                            p4d = cv2.triangulatePoints(
+                                P_norm_list[a], P_norm_list[b], pts_a, pts_b)
+                            p3d_pair = p4d[:3, 0] / p4d[3, 0]
+                            tri_pts.append(p3d_pair)
                         except cv2.error:
                             pass
 
@@ -670,27 +679,38 @@ class AircraftTriangulationGUI:
 
             p3d = pts4d[:3, 0] / pts4d[3, 0]
 
-            # 检查是否在所有相机前方
+            # Check in front of all cameras
             all_front = True
-            for P in P_list:
-                pc = P @ np.array([p3d[0], p3d[1], p3d[2], 1.0])
-                if pc[2] <= 0:
-                    all_front = False
-                    break
-
+            for img_idx, u, v in obs_list:
+                if img_idx < len(self.poses) and self.valids[img_idx]:
+                    pose = self.poses[img_idx]
+                    G_R_C = pose['G_R_C']
+                    G_t_C = pose['G_t_C']
+                    C_R_G = np.linalg.inv(G_R_C)
+                    C_t_G = -C_R_G @ G_t_C
+                    pc = C_R_G @ p3d + C_t_G
+                    if pc[2] <= 0:
+                        all_front = False
+                        break
             if not all_front:
                 print(f"  {name}: triangulated point behind camera, skipping")
                 continue
 
-            # 计算重投影误差
+            # Reprojection error in DISTORTED pixel space
             per_view_errs = []
-            for vi, P in enumerate(P_list):
-                pc = P @ np.array([p3d[0], p3d[1], p3d[2], 1.0])
-                if pc[2] > 0:
-                    u_p = pc[0] / pc[2]
-                    v_p = pc[1] / pc[2]
-                    err = math.hypot(u_p - pts_2d_list[vi][0], v_p - pts_2d_list[vi][1])
-                    per_view_errs.append((view_indices[vi], err))
+            for vi, (img_idx, u, v) in enumerate(
+                    [(vi, u, v) for vi, u, v in obs_list
+                     if vi in view_indices]):
+                if img_idx < len(self.poses) and self.valids[img_idx]:
+                    pose = self.poses[img_idx]
+                    C_R_G = np.linalg.inv(pose['G_R_C'])
+                    C_t_G = -C_R_G @ pose['G_t_C']
+                    rvec, _ = cv2.Rodrigues(C_R_G)
+                    proj, _ = cv2.projectPoints(
+                        p3d.reshape(1, 3), rvec, C_t_G, self.K, self.dist)
+                    u_p, v_p = proj[0, 0]
+                    err = math.hypot(u_p - u, v_p - v)
+                    per_view_errs.append((img_idx, err))
 
             mean_err = float(np.mean([e for _, e in per_view_errs]))
 
@@ -773,19 +793,23 @@ class AircraftTriangulationGUI:
                 continue
 
             def cost_func(p):
-                """Reprojection error vector for all views."""
+                """Reprojection error in distorted pixel space (uses full K+dist)."""
                 residuals = []
+                p3d_arr = p.reshape(1, 3).astype(np.float64)
                 for img_idx, u, v, pose in obs:
                     G_R_C = pose['G_R_C']
                     G_t_C = pose['G_t_C']
                     C_R_G = np.linalg.inv(G_R_C)
                     C_t_G = -C_R_G @ G_t_C
+                    # Check in front of camera
                     pc = C_R_G @ p + C_t_G
                     if pc[2] <= 0:
                         residuals.extend([999.0, 999.0])
                         continue
-                    u_p = pc[0] / pc[2] * self.K[0, 0] + self.K[0, 2]
-                    v_p = pc[1] / pc[2] * self.K[1, 1] + self.K[1, 2]
+                    rvec, _ = cv2.Rodrigues(C_R_G)
+                    proj, _ = cv2.projectPoints(
+                        p3d_arr, rvec, C_t_G, self.K, self.dist)
+                    u_p, v_p = proj[0, 0]
                     residuals.append(u_p - u)
                     residuals.append(v_p - v)
                 return np.array(residuals)
@@ -798,9 +822,10 @@ class AircraftTriangulationGUI:
                     # Update 3D point
                     self.points3d[name] = p3d_refined
 
-                    # Recompute errors
+                    # Recompute errors using FULL camera model (K + dist)
                     per_view_errs = []
                     view_dirs = []
+                    p3d_arr = p3d_refined.reshape(1, 3).astype(np.float64)
                     for img_idx, u, v, pose in obs:
                         G_R_C = pose['G_R_C']
                         G_t_C = pose['G_t_C']
@@ -808,11 +833,12 @@ class AircraftTriangulationGUI:
                         C_t_G = -C_R_G @ G_t_C
                         pc = C_R_G @ p3d_refined + C_t_G
                         if pc[2] > 0:
-                            u_p = pc[0] / pc[2] * self.K[0, 0] + self.K[0, 2]
-                            v_p = pc[1] / pc[2] * self.K[1, 1] + self.K[1, 2]
+                            rvec, _ = cv2.Rodrigues(C_R_G)
+                            proj, _ = cv2.projectPoints(
+                                p3d_arr, rvec, C_t_G, self.K, self.dist)
+                            u_p, v_p = proj[0, 0]
                             err = math.hypot(u_p - u, v_p - v)
                             per_view_errs.append((img_idx, err))
-                            # Camera → point direction for triangulation angle
                             cam_pt_dir = p3d_refined - G_t_C
                             view_dirs.append(cam_pt_dir / np.linalg.norm(cam_pt_dir))
 
