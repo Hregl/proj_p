@@ -720,8 +720,173 @@ class AircraftTriangulationGUI:
             print("  No outlier views to remove")
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    def _ba_refine_points(self):
+        """Nonlinear refinement (bundle adjustment) of each 3D point.
+
+        Minimizes reprojection error across all views using Huber loss.
+        Also computes triangulation angle and quality metrics.
+        """
+        print("\n" + "="*60)
+        print("Step 6b: Nonlinear point refinement (Huber BA)")
+        print("="*60)
+
+        try:
+            from scipy.optimize import least_squares
+        except ImportError:
+            print("  scipy not available, skipping BA refinement")
+            return
+
+        for name, p3d in self.points3d.items():
+            # Collect observations for this point
+            obs = []
+            for pt_idx, name_check in enumerate(self.point_names):
+                if name_check != name:
+                    continue
+                for img_idx, u, v in self.observations.get(pt_idx, []):
+                    if img_idx < len(self.poses) and self.valids[img_idx]:
+                        obs.append((img_idx, u, v, self.poses[img_idx]))
+                break
+
+            if len(obs) < 2:
+                continue
+
+            def cost_func(p):
+                """Reprojection error vector for all views."""
+                residuals = []
+                for img_idx, u, v, pose in obs:
+                    G_R_C = pose['G_R_C']
+                    G_t_C = pose['G_t_C']
+                    C_R_G = np.linalg.inv(G_R_C)
+                    C_t_G = -C_R_G @ G_t_C
+                    pc = C_R_G @ p + C_t_G
+                    if pc[2] <= 0:
+                        residuals.extend([999.0, 999.0])
+                        continue
+                    u_p = pc[0] / pc[2] * self.K[0, 0] + self.K[0, 2]
+                    v_p = pc[1] / pc[2] * self.K[1, 1] + self.K[1, 2]
+                    residuals.append(u_p - u)
+                    residuals.append(v_p - v)
+                return np.array(residuals)
+
+            try:
+                result = least_squares(cost_func, p3d, loss='huber',
+                                       method='trf', max_nfev=50)
+                if result.success:
+                    p3d_refined = result.x
+                    # Update 3D point
+                    self.points3d[name] = p3d_refined
+
+                    # Recompute errors
+                    per_view_errs = []
+                    view_dirs = []
+                    for img_idx, u, v, pose in obs:
+                        G_R_C = pose['G_R_C']
+                        G_t_C = pose['G_t_C']
+                        C_R_G = np.linalg.inv(G_R_C)
+                        C_t_G = -C_R_G @ G_t_C
+                        pc = C_R_G @ p3d_refined + C_t_G
+                        if pc[2] > 0:
+                            u_p = pc[0] / pc[2] * self.K[0, 0] + self.K[0, 2]
+                            v_p = pc[1] / pc[2] * self.K[1, 1] + self.K[1, 2]
+                            err = math.hypot(u_p - u, v_p - v)
+                            per_view_errs.append((img_idx, err))
+                            # Camera → point direction for triangulation angle
+                            cam_pt_dir = p3d_refined - G_t_C
+                            view_dirs.append(cam_pt_dir / np.linalg.norm(cam_pt_dir))
+
+                    mean_err = float(np.mean([e for _, e in per_view_errs]))
+                    max_err = float(max([e for _, e in per_view_errs]))
+
+                    # Triangulation angle: max angle between any two view directions
+                    tri_angle = 0.0
+                    for a in range(len(view_dirs)):
+                        for b in range(a + 1, len(view_dirs)):
+                            cos_ang = np.dot(view_dirs[a], view_dirs[b])
+                            cos_ang = max(-1.0, min(1.0, cos_ang))
+                            ang = math.degrees(math.acos(cos_ang))
+                            if ang > tri_angle:
+                                tri_angle = ang
+
+                    # Quality grade
+                    if mean_err <= 1.0 and max_err <= 2.0 and len(obs) >= 5 and tri_angle >= 8:
+                        quality = 'good'
+                    elif mean_err <= 2.0 and max_err <= 5.0 and len(obs) >= 3:
+                        quality = 'fair'
+                    else:
+                        quality = 'poor'
+
+                    self.errors[name] = {
+                        'mean': mean_err,
+                        'max': max_err,
+                        'per_view': per_view_errs,
+                        'n_views': len(obs),
+                        'tri_angle_deg': round(tri_angle, 1),
+                        'quality': quality,
+                    }
+
+                    nv = len(obs)
+                    print(f"  {name}: err={mean_err:.2f} px (max={max_err:.1f}), "
+                          f"angle={tri_angle:.1f} deg, views={nv}, quality={quality}")
+                else:
+                    print(f"  {name}: BA did not converge")
+
+            except Exception as e:
+                print(f"  {name}: BA failed ({e})")
+
+    # ------------------------------------------------------------------
+    def _rigid_body_check(self):
+        """Check rigid-body consistency of the reconstructed points."""
+        print("\n" + "="*60)
+        print("Step 6c: Rigid-body geometry check")
+        print("="*60)
+
+        # Compute pairwise distances
+        names = sorted(self.points3d.keys())
+        if len(names) < 3:
+            print("  Not enough points for rigid-body check")
+            return {}
+
+        # Pairwise distance matrix
+        distances = {}
+        for i, na in enumerate(names):
+            for j, nb in enumerate(names):
+                if i < j:
+                    d = float(np.linalg.norm(self.points3d[na] - self.points3d[nb]))
+                    distances[f'{na}-{nb}'] = round(d, 1)
+
+        print(f"\n  Point-to-point distances (mm):")
+        for pair in sorted(distances.keys()):
+            d = distances[pair]
+            flag = ' *** TOO CLOSE' if d < 5.0 else ''
+            print(f"    {pair}: {d:.1f} mm{flag}")
+
+        # Symmetry check: find pairs that should be symmetric
+        # (e.g., left/right wingtip should be ~same distance from centerline)
+        symmetry_pairs = [
+            ('左翼尖', '右翼尖'),
+            ('左横尾翼尖', '右横尾翼尖'),
+            ('左竖尾翼尖', '右竖尾翼尖'),
+        ]
+        for left, right in symmetry_pairs:
+            if left in self.points3d and right in self.points3d:
+                pl = self.points3d[left]
+                pr = self.points3d[right]
+                # Check Y symmetry: |Y_left + Y_right| should be ≈ 0
+                y_center = abs(float(pl[1] + pr[1]))
+                # X should be similar for symmetric points
+                x_diff = abs(float(pl[0] - pr[0]))
+                # Distance from each to the centerline should be equal
+                dl = abs(float(pl[1]))
+                dr = abs(float(pr[1]))
+                asym = abs(dl - dr)
+                print(f"    {left} <-> {right}: Y_center_offset={y_center:.1f}mm, "
+                      f"X_diff={x_diff:.1f}mm, L/R_asym={asym:.1f}mm")
+
+        return distances
+
     def export_yaml(self, output_path: str):
-        """导出为 aircraft_points.yaml。"""
+        """导出为 aircraft_points.yaml (v3 with quality metrics)."""
         print("\n" + "="*60)
         print("Step 7: Export results")
         print("="*60)
@@ -730,33 +895,48 @@ class AircraftTriangulationGUI:
             'aircraft_name': 'model_jet',
             'coordinate_system': 'G',
             'unit': 'mm',
-            'method': '多视图三角测量 (cv2.triangulatePoints)',
-            'origin': '标定板原点',
+            'method': 'Multi-view triangulation + Huber BA refinement',
+            'origin': 'Board origin',
             'point_count': len(self.points3d),
-            'note': (f'由{sum(self.valids)}张有效图像的多视图三角测量生成。'
-                     f'Z坐标非强制为0，反映真实3D位置。'),
+            'note': (f'Generated from {sum(self.valids)} valid images. '
+                     f'Refined with Huber-loss nonlinear least squares. '
+                     f'Z not forced to zero.'),
             'points': {}
         }
 
         for name, p3d in self.points3d.items():
             err_info = self.errors.get(name, {})
+            quality = err_info.get('quality', 'unknown')
             data['points'][name] = {
                 'x_mm': round(float(p3d[0]), 2),
                 'y_mm': round(float(p3d[1]), 2),
                 'z_mm': round(float(p3d[2]), 2),
-                'reproj_error_px': round(float(err_info.get('mean', 0)), 3),
-                'n_views': int(err_info.get('n_views', 0)),
+                'observation_count': int(err_info.get('n_views', 0)),
+                'mean_reprojection_error_px': round(float(err_info.get('mean', 0)), 2),
+                'max_reprojection_error_px': round(float(err_info.get('max', 0)), 2),
+                'triangulation_angle_deg':
+                    round(float(err_info.get('tri_angle_deg', 0)), 1),
+                'quality': quality,
             }
 
-        # 统计
+        # Statistics
         z_vals = [info['z_mm'] for info in data['points'].values()]
         if z_vals:
             data['stats'] = {
                 'z_range_mm': f"{min(z_vals):.1f} ~ {max(z_vals):.1f}",
-                'z_spread_mm': f"{max(z_vals) - min(z_vals):.1f}",
-                'z_std_mm': f"{float(np.std(z_vals)):.1f}",
-                'non_coplanar': 'Yes' if max(z_vals) - min(z_vals) > 2.0 else 'No',
+                'z_spread_mm': round(max(z_vals) - min(z_vals), 1),
+                'z_std_mm': round(float(np.std(z_vals)), 1),
+                'non_coplanar': max(z_vals) - min(z_vals) > 2.0,
+                'good_points': sum(1 for p in data['points'].values()
+                                   if p['quality'] == 'good'),
+                'fair_points': sum(1 for p in data['points'].values()
+                                   if p['quality'] == 'fair'),
             }
+
+        # Rigid body check
+        distances = self._rigid_body_check()
+        if distances:
+            data['pairwise_distances_mm'] = distances
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -764,18 +944,21 @@ class AircraftTriangulationGUI:
                       allow_unicode=True, sort_keys=False)
         print(f"  -> {output_path}")
 
-        # 打印摘要
-        print(f"\n  {'Name':<12} {'X(mm)':>8} {'Y(mm)':>8} {'Z(mm)':>8} {'Err(px)':>8} {'Views'}")
-        print(f"  {'-'*50}")
+        # Summary table
+        print(f"\n  {'Name':<14} {'X':>8} {'Y':>8} {'Z':>8} {'mean':>6} {'max':>6} "
+              f"{'<deg':>5} {'n':>3} {'quality'}")
+        print(f"  {'-'*70}")
         for name in sorted(data['points'].keys()):
             p = data['points'][name]
-            print(f"  {name:<12} {p['x_mm']:>8.1f} {p['y_mm']:>8.1f} {p['z_mm']:>8.1f} "
-                  f"{p['reproj_error_px']:>8.2f} {p['n_views']:>4}")
+            print(f"  {name:<14} {p['x_mm']:>8.1f} {p['y_mm']:>8.1f} {p['z_mm']:>8.1f} "
+                  f"{p['mean_reprojection_error_px']:>6.2f} {p['max_reprojection_error_px']:>6.2f} "
+                  f"{p['triangulation_angle_deg']:>5.1f} {p['observation_count']:>3} "
+                  f"{p['quality']}")
 
         if 'stats' in data:
             s = data['stats']
-            print(f"\n  Z distribution: {s['z_range_mm']} mm, spread={s['z_spread_mm']} mm, "
-                  f"sigma={s['z_std_mm']} mm, non-coplanar={s['non_coplanar']}")
+            print(f"\n  Z spread={s['z_spread_mm']} mm, "
+                  f"good={s['good_points']}, fair={s['fair_points']}")
 
         return data
 
@@ -863,7 +1046,11 @@ def main():
     if gui.points3d:
         gui.remove_outlier_views(max_error_px=args.max_error)
 
-    # 步骤7: 导出
+    # 步骤6b: Huber BA 非线性精化
+    if gui.points3d:
+        gui._ba_refine_points()
+
+    # 步骤7: 导出 (含刚体检查)
     if gui.points3d:
         gui.export_yaml(args.output)
         # 复制到标准位置
