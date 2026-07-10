@@ -1,0 +1,49 @@
+aircraft_name: model_jet
+coordinate_system: G
+unit: mm
+method: 多视图三角测量 (cv2.triangulatePoints)
+origin: 标定板原点
+point_count: 6
+note: 由15张有效图像的多视图三角测量生成。Z坐标非强制为0，反映真实3D位置。
+points:
+  机舱顶:
+    x_mm: 248.85
+    y_mm: 240.93
+    z_mm: -113.12
+    reproj_error_px: 4.88
+    n_views: 7
+  左翼尖:
+    x_mm: 116.82
+    y_mm: 166.26
+    z_mm: -97.17
+    reproj_error_px: 5.29
+    n_views: 5
+  右翼尖:
+    x_mm: 127.42
+    y_mm: 326.74
+    z_mm: -98.38
+    reproj_error_px: 2.051
+    n_views: 3
+  机脊中部:
+    x_mm: 132.12
+    y_mm: 245.81
+    z_mm: -100.34
+    reproj_error_px: 5.06
+    n_views: 9
+  左横尾翼尖:
+    x_mm: 55.38
+    y_mm: 197.21
+    z_mm: -90.3
+    reproj_error_px: 3.976
+    n_views: 4
+  右横尾翼尖:
+    x_mm: 61.32
+    y_mm: 301.77
+    z_mm: -93.1
+    reproj_error_px: 7.652
+    n_views: 4
+stats:
+  z_range_mm: -113.1 ~ -90.3
+  z_spread_mm: '22.8'
+  z_std_mm: '7.2'
+  non_coplanar: 'Yes'

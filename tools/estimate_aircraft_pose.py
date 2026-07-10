@@ -19,6 +19,18 @@ def main():
     dist = np.array(cal['dist'], dtype=np.float64)
 
     with open(args.aircraft_3d, encoding='utf-8') as f: ac3d = yaml.safe_load(f)
+
+    # Validate coordinate system
+    cs = ac3d.get('coordinate_system', '')
+    if cs != 'B':
+        raise ValueError(
+            f'Aircraft PnP requires points in aircraft body frame (B), '
+            f'got coordinate_system={cs!r}. '
+            f'Run tools/convert_to_B_frame.py to convert from G to B frame.'
+        )
+    if ac3d.get('unit', 'mm') != 'mm':
+        raise ValueError('Aircraft point unit must be mm')
+
     with open(args.aircraft_2d, encoding='utf-8') as f: ac2d = yaml.safe_load(f)
 
     # Support both 'points' and 'points_chinese' keys

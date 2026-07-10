@@ -1,0 +1,50 @@
+aircraft_name: model_jet
+coordinate_system: B
+unit: mm
+origin_definition: wing-root center (spine point)
+x_axis: tail -> nose
+y_axis: left wing -> right wing
+z_axis: toward belly (belly = -Z_B, Z_B = XxY points up)
+euler_convention: ZYX (yaw-pitch-roll)
+point_count: 6
+note: Converted from G-frame triangulation. B-frame origin at spine, X along fuselage
+  axis, Y across wingspan, Z toward belly.
+G_R_B:
+- - 0.992749
+  - -0.044609
+  - -0.111626
+- - 0.044317
+  - 0.999005
+  - -0.005096
+- - 0.111742
+  - 0.000112
+  - 0.993737
+origin_G_mm:
+- 132.1
+- 245.8
+- -100.3
+points:
+  机舱顶:
+    x_mm: 117.53
+    y_mm: 0.36
+    z_mm: 0.34
+  左翼尖:
+    x_mm: -11.99
+    y_mm: -80.17
+    z_mm: 1.43
+  右翼尖:
+    x_mm: -8.49
+    y_mm: 80.63
+    z_mm: 1.43
+  机脊中部:
+    x_mm: 0.0
+    y_mm: 0.0
+    z_mm: 0.0
+  左横尾翼尖:
+    x_mm: -75.14
+    y_mm: -52.0
+    z_mm: 1.4
+  右横尾翼尖:
+    x_mm: -73.59
+    y_mm: 52.73
+    z_mm: -0.71
