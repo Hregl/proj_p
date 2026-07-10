@@ -11,7 +11,7 @@ def main():
         description='Detect calibration board pattern points')
     p.add_argument('image', help='Calibration board image')
     p.add_argument('--config', required=True,
-                   help='Camera config (e.g. configs/cameras/camera_20mm_far.yaml)')
+                   help='Camera config (e.g. configs/cameras/camera_25mm_far.yaml)')
     p.add_argument('--output', '-o', default=None,
                    help='Output CSV (auto-generated if not set)')
     args = p.parse_args()

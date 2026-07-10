@@ -13,6 +13,6 @@ calibration:
   image_count: 4
   image_height: 3000
   image_width: 4096
-  lens: 20mm_far
-  note: Calibrated at scene distance (~1m) from scene_20mm images
+  lens: 25mm_far
+  note: Calibrated at scene distance (~1m) from scene_25mm images
   rms_px: 0.0904

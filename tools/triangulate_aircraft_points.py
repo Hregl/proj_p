@@ -1005,7 +1005,7 @@ def main():
     p.add_argument('--threshold', type=float, default=0.0,
                    help='Large circle detection threshold (0=auto-tune)')
     p.add_argument('--blob', action='store_true',
-                   help='Use blob detector for board circles (recommended for 20mm)')
+                   help='Use blob detector for board circles (recommended for 25mm)')
     args = p.parse_args()
 
     os.makedirs('output', exist_ok=True)

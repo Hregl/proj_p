@@ -1,5 +1,5 @@
 camera_id: industrial_camera_01
-lens_id: lens_20mm_01
+lens_id: lens_25mm_01
 focus_distance_mm: 500
 image_width: 4096
 image_height: 3000

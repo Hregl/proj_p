@@ -7,7 +7,7 @@ def main():
     import argparse
     p = argparse.ArgumentParser(description='Aircraft PnP pose estimation')
     p.add_argument('--config', required=True,
-                   help='Camera config (e.g. configs/cameras/camera_20mm_far.yaml)')
+                   help='Camera config (e.g. configs/cameras/camera_25mm_far.yaml)')
     p.add_argument('--aircraft-3d', default='configs/aircraft_points.yaml')
     p.add_argument('--aircraft-2d', required=True, help='Aircraft 2D annotation YAML')
     p.add_argument('--output', '-o', default='output/aircraft_pose.csv')

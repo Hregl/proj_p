@@ -18,7 +18,7 @@ def main():
     import argparse
     p = argparse.ArgumentParser(description='Board PnP pose estimation')
     p.add_argument('--config', required=True,
-                   help='Camera config (e.g. configs/cameras/camera_20mm_far.yaml)')
+                   help='Camera config (e.g. configs/cameras/camera_25mm_far.yaml)')
     p.add_argument('--board-2d', default='annotations/board_2d/points.csv')
     p.add_argument('--board-3d', default='configs/board_points.yaml')
     p.add_argument('--output', '-o', default='output/board_pose.csv')

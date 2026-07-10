@@ -13,5 +13,5 @@ calibration:
   image_count: 18
   image_height: 3000
   image_width: 4096
-  lens: 20mm
+  lens: 25mm
   rms_px: 0.0742
