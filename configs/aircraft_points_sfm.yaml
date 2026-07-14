@@ -1,0 +1,39 @@
+aircraft_name: model_jet
+coordinate_system: G
+unit: mm
+method: SfM (E-matrix decomposition + board scale)
+scale_mm: 194.1
+point_count: 8
+points:
+  机舱顶:
+    x_mm: 5.6
+    y_mm: -33.68
+    z_mm: 315.0
+  左翼尖:
+    x_mm: -311.58
+    y_mm: -540.91
+    z_mm: 8641.36
+  右翼尖:
+    x_mm: -18.61
+    y_mm: -313.96
+    z_mm: 1700.87
+  机脊中部:
+    x_mm: -104.05
+    y_mm: -378.31
+    z_mm: 2852.81
+  左横尾翼尖:
+    x_mm: 150.58
+    y_mm: -262.24
+    z_mm: 3549.28
+  右横尾翼尖:
+    x_mm: 183.9
+    y_mm: -591.72
+    z_mm: 3680.75
+  左竖尾翼尖:
+    x_mm: 146.66
+    y_mm: -658.44
+    z_mm: 4867.88
+  右竖尾翼尖:
+    x_mm: 110.91
+    y_mm: -527.22
+    z_mm: 3055.36

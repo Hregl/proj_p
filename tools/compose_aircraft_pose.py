@@ -18,16 +18,24 @@ def rotation_to_euler(R):
     return np.degrees(rx), np.degrees(ry), np.degrees(rz)
 
 def load_csv_pose(filepath):
+    """Load rvec/tvec/rmse from board or aircraft PnP CSV. Handles both old and new formats."""
     with open(filepath) as f:
         for line in f:
             if line.startswith('image_id'): continue
             parts = line.strip().split(',')
             if len(parts) >= 7:
-                rvec = np.array([float(parts[1]),float(parts[2]),float(parts[3])])
-                tvec = np.array([float(parts[4]),float(parts[5]),float(parts[6])])
-                rmse = float(parts[7]) if len(parts) > 7 else 0
-                R, _ = cv2.Rodrigues(rvec)
-                return R, tvec, rmse
+                try:
+                    rvec = np.array([float(parts[1]),float(parts[2]),float(parts[3])])
+                    tvec = np.array([float(parts[4]),float(parts[5]),float(parts[6])])
+                    # rmse column varies by format: try first numeric after tvec
+                    rmse = 0
+                    for i in range(7, len(parts)):
+                        try: rmse = float(parts[i]); break
+                        except ValueError: continue
+                    R, _ = cv2.Rodrigues(rvec)
+                    return R, tvec, rmse
+                except (ValueError, cv2.error):
+                    continue
     return None, None, 0
 
 def main():

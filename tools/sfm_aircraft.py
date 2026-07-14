@@ -20,7 +20,7 @@ Usage:
   python tools/sfm_aircraft.py data/scene_20mm1/*.bmp \
       --point-names Cockpit L_Wingtip R_Wingtip Spine \
                      L_HTail R_HTail L_VTail R_VTail \
-      --config configs/camera_25mm_far.yaml
+      --config configs/cameras/camera_25mm_far.yaml
 """
 import sys, cv2, yaml, numpy as np, math, os
 from pathlib import Path

@@ -1,0 +1,28 @@
+image: Pic_2026_07_09_173603_100.bmp
+point_count: 8
+points:
+  机舱顶:
+    pixel_x: -1.0
+    pixel_y: -1.0
+  左翼尖:
+    pixel_x: 1766.6666666666667
+    pixel_y: 1236.6666666666667
+  右翼尖:
+    pixel_x: 703.3333333333334
+    pixel_y: 936.6666666666667
+  机脊中部:
+    pixel_x: 1173.3333333333335
+    pixel_y: 1100.0
+  左横尾翼尖:
+    pixel_x: 1770.0
+    pixel_y: 980.0
+  右横尾翼尖:
+    pixel_x: 1106.6666666666667
+    pixel_y: 783.3333333333334
+  左竖尾翼尖:
+    pixel_x: 1540.0
+    pixel_y: 730.0
+  右竖尾翼尖:
+    pixel_x: 1250.0
+    pixel_y: 620.0
+source: manual_label

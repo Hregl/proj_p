@@ -35,3 +35,6 @@ data/planeNew/
 data/pN1/
 data/pN2/
 data/calibrationNew/
+data/*/
+data/*/_blur/
+*.zip

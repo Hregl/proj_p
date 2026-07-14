@@ -4,13 +4,11 @@ P1: Pose repeatability statistics module.
 Computes mean, std, min, max for yaw/pitch/roll across multiple
 independent measurements of the same pose. Outputs in both degrees
 and arcminutes.
-
-Usage:
-  python tools/evaluate_repeatability.py output/*_final.csv
 """
 import sys, csv, math
 import numpy as np
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def load_final_pose(filepath: str) -> dict:
     """Load a final pose CSV. Returns dict with yaw/pitch/roll/rmse/etc."""

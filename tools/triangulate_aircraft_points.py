@@ -22,8 +22,8 @@
 流程:
   1. 每张图检测标定板 → PnP → 相机位姿 (G_R_C, G_t_C)
   2. 注册所有标志点名称 (--point-names 或交互输入)
-  3. 图0标注: 点击位置→按数字键分配点号 → s保存
-  4. 后续帧逐帧标注: 橙色参考圈=上帧位置, 点击→按数字键 → s保存
+  3. 图0标注: 点击位置→按字母键a-n分配点号 → s保存
+  4. 后续帧逐帧标注: 橙色参考圈=上帧位置, 点击→按字母键 → s保存
   5. cv2.triangulatePoints 三角测量 → 3D坐标 (带真实Z)
   6. 异常视图自动剔除 & 重三角测量
   7. 重投影误差分析 → 导出 aircraft_points_measured.yaml
@@ -200,8 +200,63 @@ class PointTracker:
 
 
 # ====================================================================
-# 主GUI: 标注 + 跟踪修正 + 三角测量
+# Aircraft marker candidate detector — finds small bright dots
 # ====================================================================
+
+def detect_marker_candidates(image: np.ndarray, sigma: int = 4,
+                             min_contrast: float = 50.0,
+                             min_area: int = 3, max_area: int = 200
+                             ) -> List[Tuple[float, float, float]]:
+    """Auto-detect bright dot markers using local contrast.
+
+    Subtracts Gaussian-blurred image from original to find features
+    that are brighter than their local neighborhood. This naturally
+    isolates markers regardless of global illumination changes.
+
+    Returns [(cx, cy, area), ...] sorted by area descending.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    h, w = gray.shape[:2]
+
+    # Local contrast: original - blurred = spots brighter than surroundings
+    ksize = sigma * 4 + 1  # kernel size ~4x sigma
+    blurred = cv2.GaussianBlur(gray, (ksize, ksize), sigma)
+    diff = cv2.subtract(gray, blurred)
+
+    # Threshold the contrast map
+    _, mask = cv2.threshold(diff, min_contrast, 255, cv2.THRESH_BINARY)
+
+    # Connected components
+    n_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        mask, connectivity=8)
+
+    candidates = []
+    for i in range(1, n_labels):
+        area = stats[i, cv2.CC_STAT_AREA]
+        if area < min_area or area > max_area:
+            continue
+        bw = stats[i, cv2.CC_STAT_WIDTH]
+        bh = stats[i, cv2.CC_STAT_HEIGHT]
+        if bw < 2 or bh < 2 or bw > 20 or bh > 20:
+            continue
+        aspect = max(bw, bh) / max(min(bw, bh), 1)
+        if aspect > 2.5:
+            continue
+        cx, cy = centroids[i]
+        candidates.append((float(cx), float(cy), float(area)))
+
+    candidates.sort(key=lambda x: -x[2])
+    # Non-max suppression: keep largest within 5px
+    clean = []
+    for c in candidates:
+        too_close = False
+        for cc in clean:
+            if math.hypot(c[0] - cc[0], c[1] - cc[1]) < 5:
+                too_close = True
+                break
+        if not too_close:
+            clean.append(c)
+    return clean
 
 class AircraftTriangulationGUI:
     """标注、跟踪修正、三角测量的统一界面。"""
@@ -329,54 +384,79 @@ class AircraftTriangulationGUI:
         display_img, scale = self._resize_img(img_idx)
         dh, dw = display_img.shape[:2]
 
+        # Auto-detect marker candidates
+        candidates = detect_marker_candidates(self.images[img_idx])
+        print(f"    Detected {len(candidates)} marker candidates")
+
         fname = Path(self.image_paths[img_idx]).name
-        window = f"Frame {img_idx} - {fname} | Click -> press 1-8 -> s:save"
+        window = f"Frame {img_idx} - {fname} | Click near dot -> press a-n  s:save  Esc:quit"
 
         def to_display(px, py):
             return int(px * scale), int(py * scale)
 
+        def snap_to_candidate(click_x, click_y):
+            """Snap to nearest detected candidate within 20px (display coords)."""
+            best_d, best = 999, None
+            for cx, cy, _ in candidates:
+                dx, dy = to_display(cx, cy)
+                d = math.hypot(click_x - dx, click_y - dy)
+                if d < 20 and d < best_d:
+                    best_d, best = d, (cx, cy)
+            return best  # original coords or None
+
         def redraw():
             nonlocal display_img
             display_img, _ = self._resize_img(img_idx)
-            # 画参考位置 (上帧标注)
+            # Show detected candidates as small blue dots
+            for i, (cx, cy, _) in enumerate(candidates):
+                dx, dy = to_display(cx, cy)
+                cv2.circle(display_img, (dx, dy), 4, (255, 100, 50), -1)
+            # Show hints (previous frame positions)
             if hints:
                 for pt_idx, (hx, hy) in hints.items():
                     dx, dy = to_display(hx, hy)
                     cv2.circle(display_img, (dx, dy), 12, (255, 150, 50), 1)
-                    cv2.putText(display_img, f"[{pt_idx+1}]", (dx+14, dy-10),
+                    cv2.putText(display_img, f"[{chr(ord('a')+pt_idx)}]", (dx+14, dy-10),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 150, 50), 1)
-            # 画已标注的点
+            # Show assigned points
             for pt_idx, (px, py) in sorted(frame_obs.items()):
                 dx, dy = to_display(px, py)
-                cv2.circle(display_img, (dx, dy), 7, (0, 255, 0), -1)
-                cv2.circle(display_img, (dx, dy), 9, (0, 255, 0), 2)
-                cv2.putText(display_img, f"[{pt_idx+1}]", (dx+14, dy-10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
-            # 状态栏
+                cv2.circle(display_img, (dx, dy), 9, (0, 255, 0), -1)
+                cv2.circle(display_img, (dx, dy), 11, (0, 255, 0), 3)
+                cv2.putText(display_img, f"[{chr(ord('a')+pt_idx)}]", (dx+16, dy-12),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            # Status bar
             parts = []
             for i in range(self.point_count):
                 m = "v" if i in frame_obs else "x"
-                parts.append(f"[{i+1}]{m}")
+                parts.append(f"[{chr(ord('a')+i)}]{m}")
             cv2.putText(display_img, " | ".join(parts),
                        (5, dh-8), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
             cv2.putText(display_img,
-                       "Click -> press 1-8 -> s:save  q:quit",
-                       (5, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                       f"Click near blue dot -> a-n  s:save  Esc:quit  ({len(candidates)} candidates)",
+                       (5, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
 
         redraw()
         cv2.namedWindow(window, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(window, dw, dh)
         cv2.imshow(window, display_img)
 
-        pending: Optional[Tuple[float, float]] = None  # display coords
+        pending: Optional[Tuple[float, float]] = None  # original coords
 
         def click(event, x, y, flags, param):
             nonlocal pending
             if event == cv2.EVENT_LBUTTONDOWN:
-                pending = (float(x), float(y))
+                # Snap to nearest candidate if close, otherwise use click position
+                snapped = snap_to_candidate(x, y)
+                if snapped is not None:
+                    pending = snapped
+                else:
+                    pending = (x / scale, y / scale)  # display -> original
                 tmp = display_img.copy()
-                cv2.circle(tmp, (x, y), 5, (0, 0, 255), -1)
-                cv2.putText(tmp, "Press 1-8", (x+10, y-10),
+                dx, dy = to_display(pending[0], pending[1])
+                cv2.circle(tmp, (int(dx), int(dy)), 6, (0, 0, 255), -1)
+                cv2.circle(tmp, (int(dx), int(dy)), 8, (0, 0, 255), 2)
+                cv2.putText(tmp, "Press a-n", (int(dx)+12, int(dy)-10),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
                 cv2.imshow(window, tmp)
 
@@ -384,22 +464,16 @@ class AircraftTriangulationGUI:
 
         while True:
             key = cv2.waitKey(100) & 0xFF
-            if key == ord('q'):
+            if key == 27:  # Escape
                 cv2.destroyAllWindows()
                 return None
             elif key == ord('s'):
-                if len(frame_obs) > 0:
-                    break
-            elif key == ord('d') and pending is not None:
-                pending = None
-                redraw()
-                cv2.imshow(window, display_img)
-            elif ord('1') <= key <= ord('9'):
-                idx = key - ord('1')
+                break  # Allow skipping even with no points labeled
+            elif ord('a') <= key <= ord('n'):
+                idx = key - ord('a')  # a=0, b=1, ..., n=13
                 if idx < self.point_count and pending is not None:
-                    # Convert display coords to original pixel coords
-                    orig_x = pending[0] / scale
-                    orig_y = pending[1] / scale
+                    # pending is already in original image coords
+                    orig_x, orig_y = pending[0], pending[1]
 
                     # Sub-pixel refinement
                     from sls_calib.point_refiner import PointRefiner
@@ -411,12 +485,12 @@ class AircraftTriangulationGUI:
                         use_x, use_y = refined['pixel_x'], refined['pixel_y']
                         conf = refined['confidence']
                         off = refined['offset_px']
-                        print(f"    [{idx+1}] {self.point_names[idx]}: "
+                        print(f"    [{chr(ord('a')+idx)}] {self.point_names[idx]}: "
                               f"refined ({use_x:.1f}, {use_y:.1f}) "
                               f"offset={off:.1f}px conf={conf:.2f}")
                     else:
                         use_x, use_y = orig_x, orig_y
-                        print(f"    [{idx+1}] {self.point_names[idx]}: "
+                        print(f"    [{chr(ord('a')+idx)}] {self.point_names[idx]}: "
                               f"raw click ({orig_x:.0f}, {orig_y:.0f}) "
                               f"(refinement failed)")
 
@@ -434,8 +508,8 @@ class AircraftTriangulationGUI:
         print("Step 3: Label marker points (frame by frame)")
         print("="*60)
         print(f"  Point index mapping: " + ", ".join(
-            f"[{i+1}]={name}" for i, name in enumerate(self.point_names)))
-        print(f"  Per frame: click position -> press number key to assign point -> s to save")
+            f"[{chr(ord('a')+i)}]={name}" for i, name in enumerate(self.point_names)))
+        print(f"  Per frame: click -> press letter key to assign -> s to save")
 
         # 加载已有标注
         hints = None
@@ -450,7 +524,18 @@ class AircraftTriangulationGUI:
                     px, py = float(info['pixel_x']), float(info['pixel_y'])
                     if px >= 0 and py >= 0:
                         hints[name_to_idx[name]] = (px, py)
-            print(f"  Loaded {len(hints)} reference positions")
+            n_loaded = len(hints)
+            print(f"  Loaded {n_loaded} reference positions")
+
+            # Auto-populate if most points are already labeled
+            if n_loaded >= max(4, self.point_count * 0.5):
+                print(f"  Auto-filling frame 0 from existing labels (skip GUI)...")
+                for idx, (px, py) in hints.items():
+                    self.observations[idx].append((0, px, py))
+                print(f"  Frame 0: auto-filled {n_loaded}/{self.point_count} points")
+                self._save_frame_labels(0, [hints.get(i, (-1, -1))
+                                            for i in range(self.point_count)])
+                return True
 
         # 标注帧0
         print(f"\n  --- Frame 0: {Path(self.image_paths[0]).name} ---")
@@ -559,13 +644,12 @@ class AircraftTriangulationGUI:
 
     # ------------------------------------------------------------------
     def annotate_remaining_frames(self):
-        """对每个PnP有效的后续帧独立标注。跳过KLT, 上一帧标注作为橙色参考。"""
+        """Label remaining frames — auto-loads existing annotations, opens GUI for new."""
         print("\n" + "="*60)
         print("Step 4: Label remaining frames (frame by frame)")
         print("="*60)
         print(f"  Point index mapping: " + ", ".join(
-            f"[{i+1}]={name}" for i, name in enumerate(self.point_names)))
-        print(f"  Orange dashed circle = previous frame position (reference)  Green solid = current frame labeled")
+            f"[{chr(ord('a')+i)}]={name}" for i, name in enumerate(self.point_names)))
 
         prev_hints: Dict[int, Tuple[float, float]] = {}
         for i in range(self.point_count):
@@ -573,14 +657,40 @@ class AircraftTriangulationGUI:
                 last = self.observations[i][-1]
                 prev_hints[i] = (last[1], last[2])
 
+        auto_count, gui_count = 0, 0
         for img_i in range(1, len(self.images)):
             if not self.valids[img_i]:
                 continue
 
             fname = Path(self.image_paths[img_i]).name
             rmse = self.poses[img_i]['rmse']
-            print(f"\n  --- Frame {img_i}: {fname} (PnP RMSE={rmse:.2f}px) ---")
 
+            # Check for existing annotation
+            stem = Path(self.image_paths[img_i]).stem
+            existing_yaml = Path("annotations/aircraft_2d") / f"{stem}_points.yaml"
+
+            if existing_yaml.exists():
+                with open(existing_yaml, encoding='utf-8') as f:
+                    adata = yaml.safe_load(f)
+                name_to_idx = {n: i for i, n in enumerate(self.point_names)}
+                auto_obs = {}
+                for name, info in adata.get('points', {}).items():
+                    if name in name_to_idx:
+                        px = float(info.get('pixel_x', -1))
+                        py = float(info.get('pixel_y', -1))
+                        if px >= 0 and py >= 0:
+                            auto_obs[name_to_idx[name]] = (px, py)
+                if auto_obs:
+                    auto_count += 1
+                    for pt_idx, (px, py) in auto_obs.items():
+                        self.observations[pt_idx].append((img_i, px, py))
+                        prev_hints[pt_idx] = (px, py)
+                    self._save_frame_labels(
+                        img_i, [auto_obs.get(i, (-1, -1)) for i in range(self.point_count)])
+                    continue
+
+            # No existing annotation — open GUI
+            gui_count += 1
             frame_obs = self._annotate_one_frame(img_i, hints=prev_hints)
             if frame_obs is None:
                 print("    Skipping remaining frames")
@@ -588,17 +698,13 @@ class AircraftTriangulationGUI:
 
             for pt_idx, (px, py) in frame_obs.items():
                 self.observations[pt_idx].append((img_i, px, py))
-
-            n = len(frame_obs)
-            print(f"    Labeled {n}/{self.point_count} points")
-
-            for pt_idx, (px, py) in frame_obs.items():
                 prev_hints[pt_idx] = (px, py)
 
             self._save_frame_labels(
                 img_i,
-                [frame_obs.get(i, (-1, -1)) for i in range(self.point_count)]
-            )
+                [frame_obs.get(i, (-1, -1)) for i in range(self.point_count)])
+
+        print(f"  Auto-loaded: {auto_count} frames, GUI: {gui_count} frames")
 
     # ------------------------------------------------------------------
     def triangulate_all(self):
@@ -718,13 +824,13 @@ class AircraftTriangulationGUI:
             self.errors[name] = {
                 'mean': mean_err,
                 'per_view': per_view_errs,
-                'n_views': len(P_list),
+                'n_views': len(P_norm_list),
             }
 
             # 打印结果
             view_str = ", ".join([f"v{v}({e:.1f}px)" for v, e in per_view_errs])
             print(f"  {name}: ({p3d[0]:.1f}, {p3d[1]:.1f}, {p3d[2]:.1f}) mm, "
-                  f"err={mean_err:.2f}px, views={len(P_list)} | {view_str}")
+                  f"err={mean_err:.2f}px, views={len(P_norm_list)} | {view_str}")
 
     # ------------------------------------------------------------------
     def remove_outlier_views(self, max_error_px: float = 10.0):

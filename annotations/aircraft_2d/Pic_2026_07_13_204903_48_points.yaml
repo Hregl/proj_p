@@ -1,0 +1,74 @@
+image: Pic_2026_07_13_204903_48.bmp
+point_count: 9
+points:
+  机舱顶:
+    pixel_x: 2295.0
+    pixel_y: 759.0
+    source: subpixel_refined
+    visible: true
+  左翼尖:
+    pixel_x: 2610.03271484375
+    pixel_y: 1367.216381072998
+    source: subpixel_refined
+    visible: true
+  右翼尖:
+    pixel_x: 3047.113872528076
+    pixel_y: 1060.5366649627686
+    source: subpixel_refined
+    visible: true
+  机脊中部:
+    pixel_x: 2799.0638008117676
+    pixel_y: 1170.0349445343018
+    source: subpixel_refined
+    visible: true
+  左横尾翼尖:
+    pixel_x: 3015.3890438079834
+    pixel_y: 1554.669418334961
+    source: subpixel_refined
+    visible: true
+  右横尾翼尖:
+    pixel_x: 3290.6401538848877
+    pixel_y: 1337.8240394592285
+    source: subpixel_refined
+    visible: true
+  左竖尾翼尖内:
+    pixel_x: -1.0
+    pixel_y: -1.0
+    source: subpixel_refined
+    visible: false
+  左竖尾翼尖外:
+    pixel_x: 3108.9479637145996
+    pixel_y: 1226.930685043335
+    source: subpixel_refined
+    visible: true
+  右竖尾翼尖内:
+    pixel_x: -1.0
+    pixel_y: -1.0
+    source: subpixel_refined
+    visible: false
+  右竖尾翼尖外:
+    pixel_x: -1.0
+    pixel_y: -1.0
+    source: subpixel_refined
+    visible: false
+  机舱左:
+    pixel_x: 2181.25
+    pixel_y: 839.0
+    source: subpixel_refined
+    visible: true
+  机舱右:
+    pixel_x: -1.0
+    pixel_y: -1.0
+    source: subpixel_refined
+    visible: false
+  机翼左前:
+    pixel_x: 2382.605272293091
+    pixel_y: 1030.5017700195312
+    source: subpixel_refined
+    visible: true
+  机翼右前:
+    pixel_x: -1.0
+    pixel_y: -1.0
+    source: subpixel_refined
+    visible: false
+source: subpixel_refined

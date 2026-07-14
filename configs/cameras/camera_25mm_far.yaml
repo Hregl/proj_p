@@ -5,16 +5,16 @@ image_width: 4096
 image_height: 3000
 camera_model: opencv
 calibration:
-  fx: 7355.168902818602
-  fy: 7415.979002290658
-  cx: 2077.940756506506
-  cy: 1616.3391495572507
+  fx: 7340.107347753338
+  fy: 7349.978786993569
+  cx: 2098.324363486568
+  cy: 1528.2210847709457
   dist:
   - -0.1521
-  - -0.0663
-  - -0.0033
-  - 0.0001
+  - -0.0012
+  - -0.0015
+  - 0.0005
   - 0.0
-  rms_px: 0.0904
-calibration_image_count: 4
-calibration_date: '2026-07-09'
+  rms_px: 0.0582
+calibration_image_count: 15
+calibration_date: '2026-07-13'
