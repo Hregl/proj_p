@@ -1,6 +1,46 @@
-# SLS 标定工具包
+# SLS 标定工具包 — 基于地面标志点坐标系的飞机姿态评估
 
-使用编码（ArUco）标记和圆点标靶进行相机标定、运动恢复结构（SfM）和飞行器姿态估计。
+使用圆形点标靶进行相机内参标定，基于**实测地面标志点**定义地面坐标系(G)，
+通过多视图三角测量重建飞机标志点三维坐标，最终评估飞机相对于地面的姿态。
+
+## 核心改进 (v3)
+
+- **标定板仅用于相机内参标定**，不再定义世界坐标系
+- **地面坐标系 G 由实测地面标志点定义**：明确原点、X/Y/Z 轴、单位和每个标志点 ID
+- **四阶段流水线**：每阶段输出结果文件 + JSON 报告 + 可视化
+- **统一坐标变换命名**：`A_T_B` 表示将 B 系坐标转换至 A 系
+
+## 四阶段流水线
+
+```
+阶段 1：相机内参标定 → 阶段 2：地面 G 系标定 → 阶段 3：飞机标志点 3D 标定 → 阶段 4：姿态评估
+```
+
+| 阶段 | 输入 | 核心输出 | 关键质量指标 |
+|---|---|---|---|
+| 1. 内参标定 | 标定板图像 | `stage_01_intrinsics.npz` | 总 RMS、逐图 RMSE、有效图像数 |
+| 2. 地面 G 系标定 | 内参、地面标志点 3D、2D 标注 | `stage_02_ground_poses.json` | PnP RMSE、内点数/比例、跨帧一致性 |
+| 3. 飞机 3D 标定 | 多视图 2D 标注、阶段 2 位姿 | `aircraft_points_G.yaml`, `aircraft_points_B.yaml` | 观测数、三角化夹角、重投影误差、刚体距离残差 |
+| 4. 姿态评估 | 内参、地面位姿、B 系点、2D 标注 | `G_T_B`、yaw/pitch/roll | PnP RMSE、重复性 std/p95、失败率 |
+
+## 输出目录结构
+
+```
+output/<session>/
+├── stage_01_intrinsics.npz
+├── stage_01_calibration_report.json
+├── stage_01_calibration_report.csv
+├── stage_01_reprojection_residuals.png
+├── stage_02/
+│   ├── stage_02_ground_poses.json
+│   └── stage_02_ground_pose_report.json
+├── stage_03_aircraft_points_G.yaml
+├── stage_03_aircraft_points_B.yaml
+├── stage_03_B_frame_report.json
+└── stage_04/
+    ├── *_final_pose.csv
+    └── stage_04_repeatability_report.json
+```
 
 ## 项目结构
 
@@ -11,18 +51,29 @@ sls_calib/           # Python 包（核心算法）
   coded_marker.py      ArUco 编码标记: 检测、PnP、生成
   sfm_pipeline.py      多视图 SfM: 重建 + 捆绑调整
   stereo_calib.py      双目标定 + 立体校正
+  ground_pose.py       地面坐标系位姿估计 (GroundPoseEstimator)
+  transforms.py        坐标变换（欧拉角、姿态合成）
+  board_detector.py    标定板圆点检测器
+  config_validator.py  配置验证
   pipeline.py          端到端流水线运行器
 
 tools/               # 命令行入口
-  generate_markers.py  打印 ArUco 标记页 / ChArUco 标定板
-  run_calibration.py   单相机内参标定
-  run_sfm.py           多视图 SfM 重建
-  run_stereo_calib.py  双目系统标定
-  run_pipeline.py      完整流水线（标定 → SfM → 姿态）
+  run_calibration.py        阶段 1: 相机内参标定
+  estimate_ground_pose.py   阶段 2: 地面 G 系标定
+  triangulate_aircraft_points.py  阶段 3a: 飞机点多视图三角测量
+  convert_to_B_frame.py    阶段 3b: G 系→B 系转换
+  estimate_aircraft_pose.py 阶段 4a: 飞机 PnP 姿态估计
+  compose_aircraft_pose.py  阶段 4b: 合成最终姿态 G_T_B
+  evaluate_repeatability.py 重复性评估
+  visualize_axes.py         坐标轴可视化
+  run_pipeline.py           四阶段流水线编排器
 
-tests/               # 精度 / 回归测试
-data/                # 图像和生成的标记（不跟踪）
-output/              # 流水线结果（不跟踪）
+configs/
+  calibration_board_points.yaml   标定板点坐标 (CALIB_BOARD 系)
+  ground_markers_G.yaml           地面标志点 3D 坐标 (G 系) — 需实测
+  experiment_ground_pipeline.yaml 实验配置文件
+  aircraft_points_G.yaml         飞机点 G 系坐标 (阶段 3 输出)
+  aircraft_points_B.yaml         飞机点 B 系坐标 (阶段 3 输出)
 ```
 
 ## 安装
@@ -38,250 +89,118 @@ pip install -r requirements.txt
 
 依赖: Python 3.10+, OpenCV 4.10+, NumPy 2.0+, SciPy 1.14+。
 
----
+## 坐标约定
 
-## 快速验证
+| 坐标系 | 符号 | 定义 | 来源 |
+|---|---|---|---|
+| 相机系 | C | 相机光心，Z 沿光轴 | 内参标定 |
+| 地面系 | G | 由实测地面标志点定义，Z 向上 | 地面标志点测量 |
+| 机体系 | B | 原点在机脊，X 尾→头，Y 左→右，Z 向上 | G 系点转换 |
+| 标定板系 | CALIB_BOARD | 标定板局部坐标系（仅阶段 1 使用） | 标定板设计 |
 
-```bash
-# 在示例标定图像上测试标记检测
-python tests/test_marker_detector.py data/p1.png
-# 预期: 检测到 38 个标记
+**变换命名**: `A_T_B` 表示将 B 系坐标转换至 A 系的刚体变换。
+- 例: `C_T_G` = 地面系→相机系 (PnP 直接输出)
+- 例: `G_T_B` = 机体系→地面系 (最终姿态结果)
 
-# 测试 ArUco 检测（生成标记页并检测）
-python tests/test_coded_marker.py
-# 预期: 8/8 标记检测成功, 通过
+**欧拉角约定**: ZYX 顺序 (yaw-pitch-roll)，单位：度。
 
-# 在合成数据上测试 SfM 精度
-python tests/test_sfm_pipeline.py
-# 预期: 平均 3D 误差 < 1 mm, 通过
+## 端到端实验流程
 
-# 在合成数据上测试双目标定
-python tests/test_stereo_calib.py
-# 预期: 旋转误差 < 0.5°, 通过
-```
+### 准备
 
----
+1. **标定板**: 打印 SLS 圆形点标靶 (11×9 网格, 间距 25mm)
+2. **地面标志点**: 在地面布设 ≥6 个标志点，用激光测距仪/全站仪实测 3D 坐标
+3. **飞机标志点**: 在飞机模型上粘贴高对比度圆形标志点 (≥8 个，非对称分布)
+4. **配置文件**:
+   - 编辑 `configs/ground_markers_G.yaml` — 填入实测地面标志点坐标
+   - 编辑 `configs/experiment_ground_pipeline.yaml` — 设置图像路径和阈值
 
-## 端到端工作流程（真实照片）
-
-以下是飞行器姿态估计任务的完整流水线:
-
-```
-相机 1                           相机 2
-(多视角)                         (单次任意角度)
-     │                              │
-     ├─ SfM 重建 ──────┐            │
-     │  (阶段 A)       │            │
-     │                 ▼            │
-     │           3D 标记坐标        │
-     │           (地面真值)         │
-     │                 │            │
-     │                 └────────────┤
-     │                              │
-     ▼                              ▼
-   飞行器姿态 ←───── PnP ──── 单张图像
-   相对于地面                    (阶段 B)
-```
-
-### 步骤 0: 准备标记
-
-1. **生成用于打印的 ArUco 标记:**
-
-   ```bash
-   python tools/generate_markers.py --dict 4x4_50 --ids 0 1 2 3 --size 300 -o markers_ground.png
-   python tools/generate_markers.py --dict 4x4_50 --ids 4 5 6 7 8 --size 200 -o markers_aircraft.png
-   ```
-
-2. **打印** 标记到白纸上（哑光纸，不要光面 — 光面纸反光太强，会导致检测失败）。
-
-3. **粘贴** 地面标记平放在地板上（定义坐标基准）。
-   将飞行器标记粘贴到模型的已知位置上。
-
-4. **（可选）生成 ChArUco 标定板:**
-
-   ```bash
-   python tools/generate_markers.py --charuco --squares 5 7 -o charuco_board.png
-   ```
-
-### 步骤 1: 标定相机内参
-
-在运行 SfM 或 PnP 之前，需要获取每个相机的内参（焦距、主点、畸变）。
-
-**方案 A — 使用 SLS 圆点标靶**（如 `data/p1.png`）:
-
-从 10-15 个不同角度拍摄标定标靶（覆盖整个视场，包含倾斜角度）。然后:
+### 一键运行
 
 ```bash
-python tools/run_calibration.py data/calibration/*.png --circle-interval 35 -o camera.npz
+python tools/run_pipeline.py configs/experiment_ground_pipeline.yaml
 ```
 
-**方案 B — 使用棋盘格:**
-
-使用 `run_stereo_calib.py` 工具（内置棋盘格检测功能）分别标定每个相机，或直接使用 OpenCV 的 `cv2.calibrateCamera`。
-
-**方案 C — 使用 ChArUco 板**（标记部分遮挡时最鲁棒）:
-
-与棋盘格相同 — `run_stereo_calib.py` 工具支持 `--pattern charuco`。
-
-### 步骤 2: 多视图 SfM（阶段 A — 地面真值）
-
-使用 **相机 1** 从设置场景周围的 **6-15 个不同角度**拍摄场景（地面 + 飞行器）。确保:
-
-- 每张照片至少能看到 **4-6 个 ArUco 标记**（包括地面和飞行器标记）
-- 连续视图之间保持 **约 60-70% 的重叠**
-- **变换高度和角度**（不要全部从同一仰角拍摄）
-- **良好的光照** — 漫射、均匀的照明；避免标记上的直接反射
-- **对焦清晰** — 运动模糊会严重影响亚像素精度
-
-将照片放在 `data/sfm/` 中，然后:
+或分阶段运行:
 
 ```bash
-python tools/run_sfm.py data/sfm/view_*.png \
-    --camera camera.npz \
-    --ground-ids 0 1 2 3 \
-    --marker-size 0.03 \
-    -o sfm_result.npz
+# 阶段 1: 相机内参标定
+python tools/run_calibration.py data/calib/*.png --circle-interval 25 \
+    -o output/experiment_01/
+
+# 阶段 2: 地面 G 系标定
+python tools/estimate_ground_pose.py \
+    --config configs/cameras/camera_25mm.yaml \
+    --ground-3d configs/ground_markers_G.yaml \
+    --images data/ground_views/*.png \
+    --annotations annotations/ground_2d/ \
+    --output-dir output/experiment_01/stage_02/
+
+# 阶段 3: 飞机标志点 3D 标定 (交互式 GUI)
+python tools/triangulate_aircraft_points.py data/tri/*.png \
+    --config configs/experiment_config.yaml \
+    --ground-poses output/experiment_01/stage_02/stage_02_ground_poses.json \
+    --point-names 机舱顶 左翼尖 右翼尖 机脊中部 \
+                  左横尾翼尖 右横尾翼尖 左竖尾翼尖 右竖尾翼尖 \
+    --output output/experiment_01/stage_03_aircraft_points_G.yaml
+
+# 阶段 3b: B 系构建
+python tools/convert_to_B_frame.py \
+    --input output/experiment_01/stage_03_aircraft_points_G.yaml \
+    --output output/experiment_01/stage_03_aircraft_points_B.yaml
+
+# 阶段 4: 姿态评估 (逐帧)
+python tools/estimate_aircraft_pose.py \
+    --config configs/cameras/camera_25mm.yaml \
+    --aircraft-3d configs/aircraft_points_B.yaml \
+    --aircraft-2d annotations/aircraft_2d/MVIMG_20260707_202357_points.yaml
+
+python tools/compose_aircraft_pose.py \
+    --ground-pose output/stage_02/XXX_ground_pose.csv \
+    --aircraft-pose output/XXX_aircraft_pose.csv \
+    --output output/XXX_final_pose.csv
+
+# 重复性评估
+python tools/evaluate_repeatability.py output/*_final_pose.csv \
+    --group-name experiment_01 \
+    --output output/experiment_01/repeatability_report.json
 ```
 
-**工作流程:**
-1. 在每张图像中检测 ArUco 标记（ID 提供自动对应关系）
-2. 选择最佳图像对进行初始化
-3. 本质矩阵 → 相对姿态 → 三角测量 → 初始 3D 点
-4. 通过 PnP 增量注册其余视图
-5. 捆绑调整同时优化所有相机姿态和 3D 点
-6. 地面标记定义 XY 平面（Z=0）；世界原点为其质心
+## 质量门限
 
-**输出:** `sfm_result.npz` 包含:
-- `marker_ids`: ArUco ID 数组
-- `points_3d`: (N, 3) 数组，3D 标记位置，单位为 **米**（世界坐标系）
-- `reproj_error`: 最终 RMS 重投影误差，单位为像素
+| 指标 | 优秀 | 可接受 | 差 |
+|---|---|---|---|
+| 标定 RMS | < 0.5 px | < 1.5 px | > 2.0 px |
+| 地面 PnP RMSE | < 1.0 px | < 2.0 px | > 3.0 px |
+| 三角化重投影误差 | < 1.0 px | < 2.0 px | > 3.0 px |
+| 三角化夹角 | > 15° | > 8° | < 5° |
+| 飞机 PnP RMSE | < 1.0 px | < 2.0 px | > 3.0 px |
+| 重复性 (std) | < 5 arcmin | < 10 arcmin | > 30 arcmin |
+| G→B→G 回环误差 | < 0.01 mm | < 0.1 mm | > 1.0 mm |
+| det(G_R_B) | 1.000 ± 0.001 | 1.000 ± 0.01 | 偏离过大 |
 
-误差 < 1.0 px 为优秀；< 2.0 px 可接受。误差较高通常意味着标定质量差、运动模糊或角度覆盖不足。
+## 误差解释边界
 
-### 步骤 3: 飞行器姿态估计（阶段 B — 推理）
+重投影误差低、重复性好，只能证明系统在当前数据上的**内部一致性和稳定性**；
+它们不等价于绝对姿态准确度。
 
-使用 **相机 2**（可以是不同的相机，同样需要标定）从任意角度拍摄一张**单张照片**，同时拍到地面和飞行器标记。
+若需要声明例如 **1/60°（1 arcmin）绝对角度精度**，必须引入独立真值：
+已知倾角治具、编码器、高精度电子水平仪，或经溯源的外部测量系统。
 
-```python
-import cv2
-import numpy as np
-from sls_calib import CodedMarkerDetector, MultiViewSfM
+最终应报告：
 
-# 加载 SfM 结果
-sfm_data = np.load("sfm_result.npz", allow_pickle=True)
-marker_ids = sfm_data["marker_ids"]
-points_3d = {int(mid): tuple(p) for mid, p in zip(marker_ids, sfm_data["points_3d"])}
-
-# 加载相机 2 的标定参数
-cam2 = np.load("camera2.npz")
-K2 = cam2["camera_matrix"]
-dist2 = cam2["dist_coeffs"]
-
-# 在推理图像中检测标记
-img = cv2.imread("data/inference/cam2_shot.png")
-detector = CodedMarkerDetector("4x4_50")
-markers, _ = detector.detect(img)
-
-# PnP: 从地面标记求解相机姿态
-# 使用 SfM 得到的已知 3D 位置
-obj_pts = []
-img_pts = []
-for m_id, corners, center, _ in markers:
-    if m_id in points_3d:
-        obj_pts.append(points_3d[m_id])
-        img_pts.append(center)
-
-if len(obj_pts) >= 4:
-    success, rvec, tvec, _ = cv2.solvePnPRansac(
-        np.array(obj_pts, dtype=np.float32),
-        np.array(img_pts, dtype=np.float32),
-        K2, dist2,
-        flags=cv2.SOLVEPNP_EPNP,
-        iterationsCount=100,
-        reprojectionError=2.0,
-    )
-    R_cam, _ = cv2.Rodrigues(rvec)
-    print(f"相机 2 在世界坐标系中的位置: {(-R_cam.T @ tvec).ravel()} m")
+```
+θ_err = cos⁻¹((trace(R_gt^T · R_est) − 1) / 2)
 ```
 
-### 步骤 4（可选）: 双目标定
+并按 yaw/pitch/roll 分量和总旋转角分别统计均值、标准差、p95 与最大值。
 
-如果需要两个相机之间的几何关系（用于立体深度估计或交叉验证），将它们标定为双目系统:
+## 数据采集建议
 
-```bash
-python tools/run_stereo_calib.py \
-    --left data/stereo/left_*.png \
-    --right data/stereo/right_*.png \
-    --pattern chessboard --pattern-size 9 6 --square-size 0.025 \
-    -o stereo_params.npz
-```
-
-这将计算两个相机之间的相对旋转 R 和平移 T，以及用于极线对齐的校正映射。`--pattern` 参数支持 `chessboard`、`circles`（SLS 圆点网格）和 `charuco`。
-
-### 一键运行（配置文件）
-
-创建 `config.json`:
-
-```json
-{
-    "data_dir": "data/my_experiment",
-    "output_dir": "output/my_experiment",
-    "marker_size_m": 0.03,
-    "aruco_dict": "4x4_50",
-    "ground_marker_ids": [0, 1, 2, 3],
-    "aircraft_marker_ids": [4, 5, 6, 7, 8]
-}
-```
-
-然后运行:
-
-```bash
-python tools/run_pipeline.py config.json
-```
-
-或使用预先标定的内参:
-
-```bash
-python tools/run_pipeline.py --calib camera.npz \
-    --sfm-images data/sfm/*.png \
-    --ground-ids 0 1 2 3 --aircraft-ids 4 5 6 7 8 \
-    --marker-size 0.03
-```
-
----
-
-## 标记布置指南
-
-### 地面标记（推荐 4-6 个）
-
-- 放置在**平坦、水平**的表面（地板或桌面）上
-- 间距 **30-80 cm**（间距越大，角度分辨率越好）
-- **至少 1 个标记应与其他标记偏移**（不能全部共线），
-  防止地面平面法线产生歧义
-- 使用较大的标记（5-10 cm）以便在远距离也能检测到
-- 按惯例 ArUco ID 0-3 保留给地面标记
-
-### 飞行器标记（推荐 5-10 个）
-
-- 分布在飞行器表面上，**避免对称布置**
-- 至少 3 个标记应**非共线**（用于刚体姿态求解）
-- 使用较小的标记（2-5 cm）以适应模型尺寸
-- 不同表面上的标记（机翼顶面、机身侧面、尾翼）提供最佳的
-  姿态约束
-
-### 拍照技巧
-
-| 因素 | 建议 |
-|---|---|
-| 视图数量（SfM） | 8-15 |
-| 角度覆盖 | 围绕场景至少 120° |
-| 重叠度 | 连续视图之间 60-80% |
-| 光照 | 漫射、均匀；避免阳光直射或高光反射 |
-| 对焦 | 清晰；运动模糊是精度的头号杀手 |
-| 分辨率 | 最小标记至少 20 px 宽 |
-| 相机设置 | 固定对焦、固定光圈、固定白平衡 |
-
----
+- **地面标志点**: 大范围分布，避免集中、共线；所有点虽在地面平面上，但二维布局必须覆盖拍摄区域
+- **飞机标志点**: 固定使用**至少 8 个**非对称、空间分散的点
+- **三角化视角**: 需要足够基线；夹角过小、观测次数过少和重投影残差过大的点应拒绝或补拍
+- **元数据**: 所有照片应带 session、相机、焦距/镜头、分辨率等元数据
 
 ## 包 API 参考
 
@@ -290,25 +209,29 @@ from sls_calib import (
     # 标记检测
     SLSMarkerDetector,           # 圆形圆点（轮廓 + 亚像素）
     CodedMarkerDetector,         # 带 ID 的 ArUco 编码标记
-    UnifiedMarkerTracker,        # 组合两个检测器
 
     # 标定
     CalibImage, Calibrator,      # SLS 圆点网格标定
+
+    # 地面位姿
+    GroundPoseEstimator,         # 地面标志点 PnP 位姿估计
+    GroundPoseResult,            # 单帧结果
+    load_ground_poses,           # 加载阶段 2 输出
+
+    # 坐标变换
+    compose_G_T_B,               # 合成 G_T_B
+    R_to_euler,                  # 旋转矩阵 → 欧拉角
+    euler_to_R,                  # 欧拉角 → 旋转矩阵
+    rotation_angle_error,        # 旋转角误差
 
     # SfM
     MultiViewSfM, View,          # 多视图重建 + BA
 
     # 双目
     StereoCalibrator,            # 双目标定 + 校正
-    calibrate_stereo_rig,        # 一键便捷函数
 
     # 流水线
     CalibrationPipeline,         # 端到端编排
-
-    # 标记生成
-    generate_marker_image,       # 单个 ArUco 标记
-    generate_marker_sheet,       # 可打印的标记网格
-    generate_charuco_board,      # ChArUco 标定板
 )
 ```
 
@@ -316,12 +239,12 @@ from sls_calib import (
 
 | 症状 | 可能原因 | 解决方法 |
 |---|---|---|
-| 检测到 0 个 ArUco 标记 | 光照差 / 模糊 / 标记太小 | 增大标记尺寸，改善光照，检查对焦 |
-| SfM 初始化失败（"no suitable pair"） | 视图之间共享标记不够 | 增加重叠度，使用更多标记 |
-| 重投影误差高（> 3 px） | 内参差或检测噪声大 | 重新标定相机，检查运动模糊 |
-| 地面平面法线错误 | 地面标记不共面或识别错误 | 核实地面标记 ID，检查平整度 |
-| 飞行器姿态翻转/跳动 | 标记太对称 | 采用非对称标记布置 |
-| `ImportError` on `sls_calib` | 从错误的目录运行 | 始终从 `d:/proj_p/`（项目根目录）运行 |
+| 标定 RMS > 2 px | 对焦差 / 运动模糊 / 检测失败 | 重新拍摄，检查光照 |
+| 地面 PnP 失败 | 标志点匹配错误 / 3D 坐标不准 | 核实实测坐标，检查标注 ID |
+| 三角化失败 | 有效视图 < 3 / 夹角太小 | 增加视角，扩大基线 |
+| G→B→G 回环误差大 | G_R_B 不正交 | 检查参考点选择 |
+| 重复性差 (>30 arcmin) | 标志点不足 / 标注噪声大 | 增加标志点，使用亚像素精化 |
+| 欧拉角跳变 | 万向节死锁 (pitch ≈ ±90°) | 改用四元数或旋转矩阵直接比较 |
 
 ## 参考文献
 

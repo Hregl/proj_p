@@ -1,0 +1,88 @@
+# Ground coordinate system (G) definition.
+#
+# G-frame origin, axes, and marker 3D coordinates MUST be physically
+# measured (e.g. total station, laser distance meter, calibrated tape).
+# DO NOT derive them from the calibration board.
+#
+# Conventions:
+#   - unit: mm
+#   - Z_G points upward (away from ground plane)
+#   - X_G, Y_G lie in the ground plane (right-handed: Z = X x Y)
+#   - Marker 2D projections are matched to 3D coordinates by marker ID
+#
+# Minimum 6 markers, spread across the capture volume.
+# Avoid collinear layouts — 2D distribution on the ground plane is
+# acceptable, but all points must span the region the camera sees.
+
+coordinate_system: G
+unit: mm
+origin_description: >-
+  Origin defined by physical measurement of ground markers.
+  Typically at the centroid of all markers or at a designated
+  reference marker.
+x_axis_description: >-
+  X_G horizontal, points toward the right side (facing the
+  aircraft nose direction).
+y_axis_description: >-
+  Y_G horizontal, points toward the aircraft nose.
+z_axis_description: >-
+  Z_G points upward (normal to ground plane, right-hand rule:
+  Z = X x Y). Ground plane is Z=0.
+ground_normal_approximate: [0, 0, 1]
+measurement_method: "total station / laser distance meter"
+measurement_date: "2026-07-27"
+measurement_uncertainty_mm: 1.0
+
+# --- Ground marker 3D coordinates (G frame, mm) ---
+# Each marker has a unique ID string and its [x, y, z] position.
+# Fill in the ACTUAL measured values for your setup.
+#
+# Example layout (8 markers, ~500 mm spacing, covering ~1 m²):
+#
+#            G02           G03
+#             *             *
+#     ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+#             *             *
+#            G01           G04
+#
+#     ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+#             *             *
+#            G05           G06
+#
+#     ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+#             *             *
+#            G07           G08
+
+points:
+  G01:
+  - 0.0
+  - 0.0
+  - 0.0
+  G02:
+  - 0.0
+  - 500.0
+  - 0.0
+  G03:
+  - 500.0
+  - 500.0
+  - 0.0
+  G04:
+  - 500.0
+  - 0.0
+  - 0.0
+  G05:
+  - 0.0
+  - 1000.0
+  - 0.0
+  G06:
+  - 500.0
+  - 1000.0
+  - 0.0
+  G07:
+  - 0.0
+  - 1500.0
+  - 0.0
+  G08:
+  - 500.0
+  - 1500.0
+  - 0.0

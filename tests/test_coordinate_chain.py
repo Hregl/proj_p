@@ -45,7 +45,7 @@ def load_configs():
         b_pts[name] = np.array([info['x_mm'], info['y_mm'], info['z_mm']],
                                dtype=np.float64)
 
-    with open('configs/board_points.yaml', encoding='utf-8') as f:
+    with open('configs/calibration_board_points.yaml', encoding='utf-8') as f:
         board = yaml.safe_load(f)
     g_pts = {}
     for name, info in board['points'].items():

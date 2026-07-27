@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.triangulate_aircraft_points import BoardPoseEstimator
+from sls_calib.board_detector import BoardPoseEstimator
 
 
 class SfMReconstructor:

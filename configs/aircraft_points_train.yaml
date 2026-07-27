@@ -1,0 +1,134 @@
+aircraft_name: model_jet
+coordinate_system: G
+unit: mm
+method: Multi-view triangulation + Huber BA refinement
+origin: Board origin
+point_count: 9
+note: Generated from 9 valid images. Refined with Huber-loss nonlinear least squares.
+  Z not forced to zero.
+points:
+  机舱顶:
+    x_mm: 198.82
+    y_mm: -9.82
+    z_mm: -118.64
+    observation_count: 4
+    mean_reprojection_error_px: 1.45
+    max_reprojection_error_px: 2.4
+    triangulation_angle_deg: 112.6
+    quality: fair
+  左翼尖:
+    x_mm: 331.76
+    y_mm: 61.4
+    z_mm: -101.59
+    observation_count: 7
+    mean_reprojection_error_px: 0.85
+    max_reprojection_error_px: 1.52
+    triangulation_angle_deg: 85.7
+    quality: good
+  右翼尖:
+    x_mm: 317.32
+    y_mm: -101.14
+    z_mm: -101.86
+    observation_count: 7
+    mean_reprojection_error_px: 0.94
+    max_reprojection_error_px: 2.05
+    triangulation_angle_deg: 104.7
+    quality: fair
+  机脊中部:
+    x_mm: 314.06
+    y_mm: -18.31
+    z_mm: -104.91
+    observation_count: 8
+    mean_reprojection_error_px: 1.02
+    max_reprojection_error_px: 2.03
+    triangulation_angle_deg: 127.4
+    quality: fair
+  左横尾翼尖:
+    x_mm: 394.59
+    y_mm: 28.18
+    z_mm: -96.24
+    observation_count: 7
+    mean_reprojection_error_px: 0.88
+    max_reprojection_error_px: 1.72
+    triangulation_angle_deg: 83.1
+    quality: good
+  右横尾翼尖:
+    x_mm: 384.74
+    y_mm: -76.96
+    z_mm: -99.01
+    observation_count: 7
+    mean_reprojection_error_px: 1.89
+    max_reprojection_error_px: 6.22
+    triangulation_angle_deg: 121.9
+    quality: poor
+  左竖尾翼尖外:
+    x_mm: 376.08
+    y_mm: -0.22
+    z_mm: -139.03
+    observation_count: 4
+    mean_reprojection_error_px: 4.29
+    max_reprojection_error_px: 6.3
+    triangulation_angle_deg: 127.7
+    quality: poor
+  机舱左:
+    x_mm: 191.37
+    y_mm: -0.09
+    z_mm: -100.34
+    observation_count: 4
+    mean_reprojection_error_px: 1.91
+    max_reprojection_error_px: 4.18
+    triangulation_angle_deg: 50.7
+    quality: fair
+  机翼左前:
+    x_mm: 245.21
+    y_mm: 8.31
+    z_mm: -96.69
+    observation_count: 4
+    mean_reprojection_error_px: 0.61
+    max_reprojection_error_px: 0.69
+    triangulation_angle_deg: 51.0
+    quality: fair
+stats:
+  z_range_mm: -139.0 ~ -96.2
+  z_spread_mm: 42.8
+  z_std_mm: 13.1
+  non_coplanar: true
+  good_points: 2
+  fair_points: 5
+pairwise_distances_mm:
+  右横尾翼尖-右翼尖: 71.7
+  右横尾翼尖-左横尾翼尖: 105.6
+  右横尾翼尖-左竖尾翼尖外: 87.0
+  右横尾翼尖-左翼尖: 148.2
+  右横尾翼尖-机翼左前: 163.5
+  右横尾翼尖-机脊中部: 92.0
+  右横尾翼尖-机舱左: 208.1
+  右横尾翼尖-机舱顶: 198.6
+  右翼尖-左横尾翼尖: 150.8
+  右翼尖-左竖尾翼尖外: 122.6
+  右翼尖-左翼尖: 163.2
+  右翼尖-机翼左前: 131.2
+  右翼尖-机脊中部: 83.0
+  右翼尖-机舱左: 161.5
+  右翼尖-机舱顶: 150.5
+  左横尾翼尖-左竖尾翼尖外: 54.6
+  左横尾翼尖-左翼尖: 71.3
+  左横尾翼尖-机翼左前: 150.7
+  左横尾翼尖-机脊中部: 93.4
+  左横尾翼尖-机舱左: 205.2
+  左横尾翼尖-机舱顶: 200.7
+  左竖尾翼尖外-左翼尖: 84.6
+  左竖尾翼尖外-机翼左前: 137.8
+  左竖尾翼尖外-机脊中部: 73.1
+  左竖尾翼尖外-机舱左: 188.7
+  左竖尾翼尖外-机舱顶: 178.7
+  左翼尖-机翼左前: 101.7
+  左翼尖-机脊中部: 81.7
+  左翼尖-机舱左: 153.3
+  左翼尖-机舱顶: 151.8
+  机翼左前-机脊中部: 74.3
+  机翼左前-机舱左: 54.6
+  机翼左前-机舱顶: 54.4
+  机脊中部-机舱左: 124.1
+  机脊中部-机舱顶: 116.4
+  机舱左-机舱顶: 22.0

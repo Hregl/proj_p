@@ -45,6 +45,12 @@ from .scene_renderer import Scene, SceneConfig, SceneRenderer, run_virtual_end_t
 # --- feature_sfm -----------------------------------------------------
 from .feature_sfm import FeatureBasedSfM, FeatureView, MatchPair
 
+# --- ground_pose -----------------------------------------------------
+from .ground_pose import GroundPoseEstimator, GroundPoseResult, GroundPoseReport, load_ground_poses
+
+# --- board_detector --------------------------------------------------
+from .board_detector import BoardDetector, BoardDetectionResult, detect_and_assign_board, BoardPoseEstimator
+
 __all__ = [
     # marker_detector
     "SLSMarkerDetector",
@@ -76,4 +82,14 @@ __all__ = [
     "SceneConfig",
     "SceneRenderer",
     "run_virtual_end_to_end_test",
+    # ground_pose
+    "GroundPoseEstimator",
+    "GroundPoseResult",
+    "GroundPoseReport",
+    "load_ground_poses",
+    # board_detector
+    "BoardDetector",
+    "BoardDetectionResult",
+    "detect_and_assign_board",
+    "BoardPoseEstimator",
 ]

@@ -1,9 +1,9 @@
 image: Pic_2026_07_13_204747_43.bmp
-point_count: 10
+point_count: 8
 points:
   机舱顶:
-    pixel_x: 2379.1015586853027
-    pixel_y: 561.7709465026855
+    pixel_x: 2378.981683731079
+    pixel_y: 561.7396507263184
     source: subpixel_refined
     visible: true
   左翼尖:
@@ -37,30 +37,30 @@ points:
     source: subpixel_refined
     visible: false
   左竖尾翼尖外:
-    pixel_x: 3425.3333333333335
-    pixel_y: 1048.0
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右竖尾翼尖内:
-    pixel_x: 3507.8571428571427
-    pixel_y: 851.8571428571429
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右竖尾翼尖外:
     pixel_x: -1.0
     pixel_y: -1.0
     source: subpixel_refined
     visible: false
   机舱左:
-    pixel_x: 2291.5
-    pixel_y: 656.25
-    source: subpixel_refined
-    visible: true
-  机舱右:
     pixel_x: -1.0
     pixel_y: -1.0
     source: subpixel_refined
     visible: false
+  机舱右:
+    pixel_x: 2291.5
+    pixel_y: 656.25
+    source: subpixel_refined
+    visible: true
   机翼左前:
     pixel_x: 2557.178518295288
     pixel_y: 850.7699337005615

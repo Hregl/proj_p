@@ -1,11 +1,11 @@
 image: Pic_2026_07_13_204328_21.bmp
-point_count: 1
+point_count: 0
 points:
   机舱顶:
-    pixel_x: 1387.3906707763672
-    pixel_y: 1270.796049118042
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   左翼尖:
     pixel_x: -1.0
     pixel_y: -1.0

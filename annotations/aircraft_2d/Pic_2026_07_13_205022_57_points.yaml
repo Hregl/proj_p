@@ -1,13 +1,13 @@
 image: Pic_2026_07_13_205022_57.bmp
-point_count: 14
+point_count: 7
 points:
   机舱顶:
-    pixel_x: 2193.3333333333335
-    pixel_y: 1366.6666666666667
+    pixel_x: 2213.0
+    pixel_y: 1369.0
     source: subpixel_refined
     visible: true
   左翼尖:
-    pixel_x: 1929.5087203979492
+    pixel_x: 1929.5087223052979
     pixel_y: 906.1875743865967
     source: subpixel_refined
     visible: true
@@ -22,53 +22,53 @@ points:
     source: subpixel_refined
     visible: true
   左横尾翼尖:
-    pixel_x: 1573.3333333333335
-    pixel_y: 740.0
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右横尾翼尖:
-    pixel_x: 1086.9568901062012
-    pixel_y: 847.3036193847656
+    pixel_x: 1086.7427368164062
+    pixel_y: 847.2702102661133
     source: subpixel_refined
     visible: true
   左竖尾翼尖内:
-    pixel_x: 1554.931879043579
-    pixel_y: 615.7914199829102
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   左竖尾翼尖外:
-    pixel_x: 1554.931879043579
-    pixel_y: 615.7914199829102
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右竖尾翼尖内:
-    pixel_x: 1359.7716026306152
-    pixel_y: 659.3381061553955
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右竖尾翼尖外:
-    pixel_x: 1359.7716026306152
-    pixel_y: 659.3381061553955
+    pixel_x: 1359.7959327697754
+    pixel_y: 659.4056224822998
     source: subpixel_refined
     visible: true
   机舱左:
-    pixel_x: 2240.0
-    pixel_y: 1460.0
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   机舱右:
-    pixel_x: 2155.330858230591
-    pixel_y: 1499.0970249176025
+    pixel_x: 2155.3183784484863
+    pixel_y: 1499.097267150879
     source: subpixel_refined
     visible: true
   机翼左前:
-    pixel_x: 2033.3333333333335
-    pixel_y: 1236.6666666666667
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   机翼右前:
-    pixel_x: 1859.2543563842773
-    pixel_y: 1354.0179748535156
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
 source: subpixel_refined

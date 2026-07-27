@@ -389,6 +389,125 @@ class Calibrator:
         ]
         return ("\n".join(lines), mtx, dist)
 
+    # ------ 带结构化返回值的标定 (新增) -----------------------------------
+    def calibrate_camera_structured(
+        self,
+        images: List[CalibImage],
+        prefix: str,
+        debug: bool = False,
+    ) -> dict:
+        """与 calibrate_camera 相同，但返回结构化字典供报告生成。
+
+        Returns:
+            {
+                'success': bool,
+                'K': ndarray or None,
+                'dist': ndarray or None,
+                'overall_rms_px': float,
+                'image_size': (w, h),
+                'per_view_rmse': list of float,
+                'n_common_circles': int,
+                'valid_image_indices': list of int,
+                'failure_reasons': list of str,
+                'std_intrinsics': ndarray or None,
+                'std_extrinsics': ndarray or None,
+            }
+        """
+        result = {
+            'success': False,
+            'K': None,
+            'dist': None,
+            'overall_rms_px': 999.0,
+            'image_size': (0, 0),
+            'per_view_rmse': [],
+            'n_common_circles': 0,
+            'valid_image_indices': [],
+            'failure_reasons': [],
+            'std_intrinsics': None,
+            'std_extrinsics': None,
+        }
+
+        if not images:
+            result['failure_reasons'].append('No images provided')
+            return result
+
+        # Build common-circle mask
+        common_circles = [True] * 99
+        found_any = False
+        valid_indices = []
+        for idx, img in enumerate(images):
+            if prefix not in img.name:
+                continue
+            if not img.circle_array:
+                result['failure_reasons'].append(
+                    f"Image {img.name}: find_circle_indices() not called")
+                continue
+            found_any = True
+            n_assigned = sum(1 for _, _, ok, _ in img.circle_array if ok)
+            if n_assigned < 10:
+                result['failure_reasons'].append(
+                    f"Image {img.name}: only {n_assigned} circles assigned (need >=10)")
+                continue
+            valid_indices.append(idx)
+            for i, (_, _, valid, _) in enumerate(img.circle_array):
+                if not valid:
+                    common_circles[i] = False
+
+        result['valid_image_indices'] = valid_indices
+        result['n_common_circles'] = sum(common_circles)
+
+        if not found_any:
+            result['failure_reasons'].append(
+                f"No images matched prefix '{prefix}'")
+            return result
+
+        if result['n_common_circles'] < 10:
+            result['failure_reasons'].append(
+                f"Only {result['n_common_circles']} common circles across images (need >=10)")
+            return result
+
+        # Collect correspondences
+        obj_pts_all, img_pts_all = [], []
+        for img in images:
+            if prefix not in img.name:
+                continue
+            obj_pts_one, img_pts_one = [], []
+            for i, common in enumerate(common_circles):
+                if not common:
+                    continue
+                (px, py), (wx, wy, wz), _, _ = img.circle_array[i]
+                obj_pts_one.append(np.array([wx, wy, wz], dtype=np.float32))
+                img_pts_one.append(np.array([px, py], dtype=np.float32))
+            if obj_pts_one:
+                obj_pts_all.append(obj_pts_one)
+                img_pts_all.append(img_pts_one)
+
+        if not obj_pts_all:
+            result['failure_reasons'].append('No valid point correspondences')
+            return result
+
+        result['image_size'] = images[0].image.shape[:2][::-1]
+
+        try:
+            ret, mtx, dist, rvecs, tvecs, std_int, std_ext, per_view = (
+                cv2.calibrateCamera(
+                    obj_pts_all, img_pts_all, result['image_size'],
+                    None, None,
+                    flags=cv2.CALIB_FIX_K3,
+                )
+            )
+            result['success'] = True
+            result['K'] = mtx
+            result['dist'] = dist
+            result['overall_rms_px'] = float(ret)
+            result['per_view_rmse'] = [float(pv[0]) for pv in per_view]
+            result['std_intrinsics'] = std_int
+            result['std_extrinsics'] = std_ext
+        except cv2.error as exc:
+            result['failure_reasons'].append(f'cv2.calibrateCamera error: {exc}')
+
+        return result
+
     # ------ 完整扫描仪标定 -----------------------------------------------
     def calibrate_scanner(
         self,

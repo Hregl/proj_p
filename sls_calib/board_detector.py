@@ -300,3 +300,138 @@ def detect_and_assign_board(image: np.ndarray,
 
     return result
 
+
+# ====================================================================
+# BoardPoseEstimator — legacy wrapper for tools that need the old API
+# ====================================================================
+
+class BoardPoseEstimator:
+    """Detect calibration board and estimate camera pose via PnP.
+
+    Provides backward-compatible API for tools that were previously
+    coupled to the old BoardPoseEstimator in triangulate_aircraft_points.py.
+
+    Note: In the new pipeline, the calibration board is ONLY used for
+    camera intrinsics (Stage 1). Ground coordinate system (G) is defined
+    by measured ground markers (GroundPoseEstimator).
+    """
+
+    def __init__(self, K: np.ndarray, dist: np.ndarray,
+                 board_yaml: str = "configs/calibration_board_points.yaml",
+                 circle_interval: float = 25.0,
+                 large_thresh: float = 0.55,
+                 use_blob: bool = True):
+        import yaml as _yaml
+        self.K = np.asarray(K, dtype=np.float64)
+        self.dist = np.asarray(dist, dtype=np.float64).ravel()
+        with open(board_yaml, encoding='utf-8') as f:
+            board = _yaml.safe_load(f)
+        self.pts3d = np.array(list(board['points'].values()), dtype=np.float64)
+        self.pt_ids = list(board['points'].keys())
+        self.interval = circle_interval
+        self.thresh = large_thresh
+        self.use_blob = use_blob
+
+    def process_image(self, img: np.ndarray):
+        """Detect board, assign grid, run PnP.
+
+        Returns:
+            G_R_C, G_t_C, rmse, rvec, tvec
+        """
+        import cv2, numpy as np
+        from sls_calib.camera_calib import CalibImage
+
+        ci = CalibImage(name='tmp', image=img, selected=True)
+
+        if self.use_blob:
+            bd = BoardDetector()
+            markers, _ = bd.detect(img)
+            ci.circles = [((cx, cy), area) for (cx, cy), area in markers]
+            ci.create_display_circles()
+        else:
+            from sls_calib import Calibrator
+            calib = Calibrator()
+            calib.extract_circles([ci], only_selected=False,
+                                  smooth=True, debug=False)
+            ci.create_display_circles()
+
+        # Auto-tune thresholds
+        best_score, best_arr = -1, None
+        thresholds = [self.thresh] if self.thresh else \
+                     [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+        for t in thresholds:
+            ci2 = CalibImage(name='tmp2', image=img, selected=True)
+            ci2.circles = ci.circles
+            ci2.display_circles = ci.display_circles
+            err = ci2.find_circle_indices(self.interval, debug=False,
+                                          large_circle_threshold=t)
+            if err != '':
+                continue
+            n_assigned = sum(1 for _, _, ok, _ in ci2.circle_array if ok)
+            if n_assigned < 6:
+                continue
+            obj_t, img_t = [], []
+            for (px, py), (wx, wy, wz), ok2, _ in ci2.circle_array:
+                if ok2:
+                    obj_t.append([wx, wy, wz])
+                    img_t.append([px, py])
+            obj_t = np.array(obj_t, dtype=np.float64)
+            img_t = np.array(img_t, dtype=np.float64)
+            ok_pnp, rv, tv = cv2.solvePnP(
+                obj_t, img_t, self.K, self.dist,
+                flags=cv2.SOLVEPNP_IPPE)
+            if not ok_pnp:
+                continue
+            proj_t, _ = cv2.projectPoints(obj_t, rv, tv, self.K, self.dist)
+            errs_t = np.linalg.norm(proj_t.reshape(-1, 2) - img_t, axis=1)
+            rmse_t = float(np.sqrt(np.mean(errs_t ** 2)))
+            if rmse_t > 10.0:
+                continue
+            score = n_assigned - rmse_t * 5
+            if score > best_score:
+                best_score = score
+                best_arr = ci2.circle_array
+
+        if best_arr is None:
+            return None, None, 999, None, None
+
+        obj, img_pts = [], []
+        for (px, py), (wx, wy, wz), ok, _ in best_arr:
+            if ok:
+                obj.append([wx, wy, wz])
+                img_pts.append([px, py])
+
+        obj_arr = np.array(obj, dtype=np.float64)
+        img_arr = np.array(img_pts, dtype=np.float64)
+
+        success, rvec, tvec, inliers = cv2.solvePnPRansac(
+            obj_arr, img_arr, self.K, self.dist,
+            flags=cv2.SOLVEPNP_IPPE, iterationsCount=200,
+            reprojectionError=2.0, confidence=0.99)
+        if not success:
+            success, rvec, tvec = cv2.solvePnP(
+                obj_arr, img_arr, self.K, self.dist,
+                flags=cv2.SOLVEPNP_IPPE)
+            inliers = None
+        if not success:
+            return None, None, 999, None, None
+
+        C_R_G, _ = cv2.Rodrigues(rvec)
+        C_t_G = tvec.ravel()
+        G_R_C = np.linalg.inv(C_R_G)
+        G_t_C = -G_R_C @ C_t_G
+
+        if inliers is not None and len(inliers) > 0:
+            inl_idx = inliers.ravel()
+            mask = np.zeros(len(obj_arr), dtype=bool)
+            mask[inl_idx] = True
+            proj, _ = cv2.projectPoints(
+                obj_arr[mask], rvec, tvec, self.K, self.dist)
+            errs = np.linalg.norm(proj.reshape(-1, 2) - img_arr[mask], axis=1)
+        else:
+            proj, _ = cv2.projectPoints(obj_arr, rvec, tvec, self.K, self.dist)
+            errs = np.linalg.norm(proj.reshape(-1, 2) - img_arr, axis=1)
+        rmse = float(np.sqrt(np.mean(errs ** 2)))
+
+        return G_R_C, G_t_C, rmse, rvec, tvec
+

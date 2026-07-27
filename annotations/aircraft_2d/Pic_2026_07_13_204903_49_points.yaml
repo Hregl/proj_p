@@ -1,5 +1,5 @@
 image: Pic_2026_07_13_204903_49.bmp
-point_count: 1
+point_count: 0
 points:
   机舱顶:
     pixel_x: -1.0
@@ -42,10 +42,10 @@ points:
     source: subpixel_refined
     visible: false
   右竖尾翼尖内:
-    pixel_x: 3248.6666666666665
-    pixel_y: 1115.3333333333333
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右竖尾翼尖外:
     pixel_x: -1.0
     pixel_y: -1.0

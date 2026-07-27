@@ -2,8 +2,8 @@ image: Pic_2026_07_13_204917_50.bmp
 point_count: 9
 points:
   机舱顶:
-    pixel_x: 2340.055055618286
-    pixel_y: 1224.5908966064453
+    pixel_x: 2356.3333333333335
+    pixel_y: 1240.6666666666667
     source: subpixel_refined
     visible: true
   左翼尖:
@@ -63,7 +63,7 @@ points:
     visible: false
   机翼左前:
     pixel_x: 2579.8784980773926
-    pixel_y: 1456.7420234680176
+    pixel_y: 1456.742021560669
     source: subpixel_refined
     visible: true
   机翼右前:

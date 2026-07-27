@@ -20,7 +20,7 @@ def main():
     p.add_argument('--config', required=True,
                    help='Camera config (e.g. configs/cameras/camera_25mm_far.yaml)')
     p.add_argument('--board-2d', default='annotations/board_2d/points.csv')
-    p.add_argument('--board-3d', default='configs/board_points.yaml')
+    p.add_argument('--board-3d', default='configs/calibration_board_points.yaml')
     p.add_argument('--output', '-o', default='output/board_pose.csv')
     args = p.parse_args()
 

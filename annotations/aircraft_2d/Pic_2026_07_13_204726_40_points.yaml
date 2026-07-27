@@ -1,5 +1,5 @@
 image: Pic_2026_07_13_204726_40.bmp
-point_count: 6
+point_count: 1
 points:
   机舱顶:
     pixel_x: 2029.4300842285156
@@ -7,30 +7,30 @@ points:
     source: subpixel_refined
     visible: true
   左翼尖:
-    pixel_x: 1147.6841259002686
-    pixel_y: 1918.556526184082
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右翼尖:
-    pixel_x: 2246.227493286133
-    pixel_y: 2350.6035299301147
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   机脊中部:
-    pixel_x: 1718.8717880249023
-    pixel_y: 2060.7005882263184
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   左横尾翼尖:
-    pixel_x: 1134.028268814087
-    pixel_y: 2382.5568466186523
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   右横尾翼尖:
-    pixel_x: 1870.817539215088
-    pixel_y: 2664.0020790100098
+    pixel_x: -1.0
+    pixel_y: -1.0
     source: subpixel_refined
-    visible: true
+    visible: false
   左竖尾翼尖内:
     pixel_x: -1.0
     pixel_y: -1.0

@@ -1,176 +1,94 @@
 """
-多视图三角测量飞机标志点三维坐标 (v2)。
+多视图三角测量飞机标志点三维坐标 (v3)。
 
-利用标定板PnP获得每张图的相机位姿，通过多视图三角测量直接解算
-飞机标志点在标定板参考系(G)下的真实三维坐标（包括Z/高度）。
+利用阶段2的地面标志点位姿 (C_T_G) 获得每张图的相机位姿，
+通过多视图三角测量直接解算飞机标志点在地面坐标系(G)下的
+真实三维坐标（包括Z/高度）。
 
-与v1的区别:
-  - 使用 cv2.triangulatePoints 正确引入K矩阵
-  - 跟踪后提供交互式修正界面（拖拽/增删观测点）
-  - 重投影误差按视图分解，支持异常视图剔除
-  - true inverse for rotation (np.linalg.inv)
+与v2的区别:
+  - 不再使用标定板PnP获得相机位姿，改为读取阶段2的 ground poses
+  - 坐标系统一为地面坐标系 G (由实测地面标志点定义)
+  - 保留 cv2.triangulatePoints + Huber BA + 刚体检查
 
 使用方式:
   # 所有点在一张图中可见时:
   python tools/triangulate_aircraft_points.py data/tri/*.png \
+      --ground-poses output/session_01/stage_02_ground_poses.json \
       --point-names 机舱顶 左翼尖 右翼尖 机脊中部 \
                     左横尾翼尖 右横尾翼尖 左竖尾翼尖 右竖尾翼尖
 
   # 部分点在某帧不可见时(同样的命令, 标注时挑可见的点标即可):
-  python tools/triangulate_aircraft_points.py data/tri/*.png --threshold 0.55
+  python tools/triangulate_aircraft_points.py data/tri/*.png \
+      --ground-poses output/session_01/stage_02_ground_poses.json \
+      --threshold 0.55
 
 流程:
-  1. 每张图检测标定板 → PnP → 相机位姿 (G_R_C, G_t_C)
+  1. 加载阶段2的地面位姿 C_T_G (或从 ground_poses.json 读取)
   2. 注册所有标志点名称 (--point-names 或交互输入)
   3. 图0标注: 点击位置→按字母键a-n分配点号 → s保存
   4. 后续帧逐帧标注: 橙色参考圈=上帧位置, 点击→按字母键 → s保存
   5. cv2.triangulatePoints 三角测量 → 3D坐标 (带真实Z)
   6. 异常视图自动剔除 & 重三角测量
-  7. 重投影误差分析 → 导出 aircraft_points_measured.yaml
+  7. 重投影误差分析 → 导出 aircraft_points_G.yaml
 """
 
-import sys, yaml, cv2, numpy as np, math, os
+import sys, yaml, cv2, numpy as np, math, os, json, time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sls_calib import CalibImage, Calibrator
+from sls_calib.ground_pose import load_ground_poses
 
 
 # ====================================================================
-# 标定板PnP
+# Ground pose provider (replaces BoardPoseEstimator)
 # ====================================================================
 
-class BoardPoseEstimator:
-    """对每张图做标定板PnP，输出相机在G系中的位姿。"""
+class GroundPoseProvider:
+    """Loads camera poses from stage 2 ground pose JSON output.
 
-    def __init__(self, K: np.ndarray, dist: np.ndarray,
-                 board_yaml: str = "configs/board_points.yaml",
-                 circle_interval: float = 25.0,
-                 large_thresh: float = 0.55,
-                 use_blob: bool = True):
-        self.K = K.astype(np.float64)
-        self.dist = np.asarray(dist, dtype=np.float64).ravel()
-        with open(board_yaml, encoding='utf-8') as f:
-            board = yaml.safe_load(f)
-        self.pts3d = np.array(list(board['points'].values()), dtype=np.float64)
-        self.pt_ids = list(board['points'].keys())
-        self.interval = circle_interval
-        self.thresh = large_thresh
-        self.use_blob = use_blob
+    Replaces BoardPoseEstimator — the ground coordinate system G is now
+    defined by physically measured ground markers, not the calibration board.
+    """
 
-    def process_image(self, img: np.ndarray
-                      ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray],
-                                 float, np.ndarray, np.ndarray]:
+    def __init__(self, ground_poses_json: str):
         """
+        Args:
+            ground_poses_json: Path to stage_02_ground_poses.json
+        """
+        self.poses = load_ground_poses(ground_poses_json)
+        if not self.poses:
+            raise ValueError(
+                f"No valid poses found in {ground_poses_json}. "
+                f"Run stage 2 (estimate_ground_pose.py) first.")
+        print(f"Loaded {len(self.poses)} ground poses from {ground_poses_json}")
+
+    def get_pose(self, image_stem: str
+                 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray],
+                            float, Optional[np.ndarray], Optional[np.ndarray]]:
+        """Get camera pose for an image.
+
         Returns:
             G_R_C, G_t_C, rmse, rvec, tvec
-            相机在G系中的位姿: X_G = G_R_C @ X_C + G_t_C
-            rvec/tvec: 原始PnP结果 (C_T_G), 用于cv2.projectPoints
+            where G_R_C, G_t_C = camera→world (X_G = G_R_C * X_C + G_t_C)
+            rvec, tvec = world→camera (for cv2.projectPoints)
         """
-        ci = CalibImage(name='tmp', image=img, selected=True)
-
-        if self.use_blob:
-            from sls_calib.board_detector import BoardDetector
-            bd = BoardDetector()
-            markers, _ = bd.detect(img)
-            # Convert to CalibImage.circles format: [((cx,cy), area), ...]
-            ci.circles = [((cx, cy), area) for (cx, cy), area in markers]
-            ci.create_display_circles()
-        else:
-            calib = Calibrator()
-            calib.extract_circles([ci], only_selected=False, smooth=True, debug=False)
-            ci.create_display_circles()
-
-        # Auto-tune: try thresholds, pick best (high assigned, low RMSE)
-        best_score, best_t = -1, self.thresh
-        best_circle_array = None
-        thresholds = [self.thresh] if self.thresh else \
-                     [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
-        for t in thresholds:
-            ci2 = CalibImage(name='tmp', image=img, selected=True)
-            ci2.circles = ci.circles
-            ci2.display_circles = ci.display_circles
-            err = ci2.find_circle_indices(self.interval, debug=False,
-                                          large_circle_threshold=t)
-            if err != '':
-                continue
-            n_assigned = sum(1 for _, _, ok, _ in ci2.circle_array if ok)
-            if n_assigned < 6:
-                continue
-            # Quick PnP to validate this threshold
-            obj_t, img_t = [], []
-            for (px, py), (wx, wy, wz), ok, _ in ci2.circle_array:
-                if ok:
-                    obj_t.append([wx, wy, wz])
-                    img_t.append([px, py])
-            obj_t = np.array(obj_t, dtype=np.float64)
-            img_t = np.array(img_t, dtype=np.float64)
-            ok_pnp, rv, tv = cv2.solvePnP(
-                obj_t, img_t, self.K, self.dist,
-                flags=cv2.SOLVEPNP_IPPE)
-            if not ok_pnp:
-                continue
-            # Project all points and compute RMSE
-            proj_t, _ = cv2.projectPoints(obj_t, rv, tv, self.K, self.dist)
-            errs_t = np.linalg.norm(proj_t.reshape(-1, 2) - img_t, axis=1)
-            rmse_t = float(np.sqrt(np.mean(errs_t**2)))
-            if rmse_t > 10.0:  # Reject clearly wrong assignments
-                continue
-            # Score: prefer more assigned circles, penalize high RMSE
-            score = n_assigned - rmse_t * 5
-            if score > best_score:
-                best_score = score
-                best_t = t
-                best_circle_array = ci2.circle_array
-
-        if best_circle_array is None:
-            return None, None, 999, None, None
-        ci.circle_array = best_circle_array
-
-        obj, img_pts = [], []
-        for (px, py), (wx, wy, wz), ok, _ in ci.circle_array:
-            if ok:
-                obj.append([wx, wy, wz])
-                img_pts.append([px, py])
-
-        obj_arr = np.array(obj, dtype=np.float64)
-        img_arr = np.array(img_pts, dtype=np.float64)
-
-        # IPPE: designed for planar objects (Z=0 board). EPNP fails with all-coplanar points.
-        success, rvec, tvec, inliers = cv2.solvePnPRansac(
-            obj_arr, img_arr, self.K, self.dist,
-            flags=cv2.SOLVEPNP_IPPE, iterationsCount=200,
-            reprojectionError=2.0, confidence=0.99)
-        if not success:
-            # Fallback: IPPE without RANSAC
-            success, rvec, tvec = cv2.solvePnP(
-                obj_arr, img_arr, self.K, self.dist,
-                flags=cv2.SOLVEPNP_IPPE)
-            inliers = None
-        if not success:
+        if image_stem not in self.poses:
             return None, None, 999, None, None
 
-        # C_T_G: 标定板系→相机系
-        C_R_G, _ = cv2.Rodrigues(rvec)
-        C_t_G = tvec.ravel()
+        p = self.poses[image_stem]
+        C_R_G = p['C_R_G']
+        C_t_G = p['C_t_G']
 
-        # 求逆: G_T_C = inv(C_T_G)  (使用真逆)
+        # Invert: C_T_G → G_T_C
         G_R_C = np.linalg.inv(C_R_G)
         G_t_C = -G_R_C @ C_t_G
 
-        # 重投影RMSE (仅内点)
-        if inliers is not None and len(inliers) > 0:
-            inl_idx = inliers.ravel()
-            mask = np.zeros(len(obj_arr), dtype=bool)
-            mask[inl_idx] = True
-            proj, _ = cv2.projectPoints(obj_arr[mask], rvec, tvec, self.K, self.dist)
-            errs = np.linalg.norm(proj.reshape(-1, 2) - img_arr[mask], axis=1)
-        else:
-            proj, _ = cv2.projectPoints(obj_arr, rvec, tvec, self.K, self.dist)
-            errs = np.linalg.norm(proj.reshape(-1, 2) - img_arr, axis=1)
-        rmse = float(np.sqrt(np.mean(errs**2)))
+        # Rodrigues for projectPoints
+        rvec, _ = cv2.Rodrigues(C_R_G)
+        tvec = C_t_G.reshape(3, 1).astype(np.float64)
 
-        return G_R_C, G_t_C, rmse, rvec, tvec
+        return G_R_C, G_t_C, p.get('rmse_px', 0.0), rvec, tvec
 
 
 # ====================================================================
@@ -266,13 +184,13 @@ class AircraftTriangulationGUI:
 
     def __init__(self, images: List[np.ndarray],
                  image_paths: List[str],
-                 board_estimator: BoardPoseEstimator,
+                 ground_pose_provider: GroundPoseProvider,
                  K: np.ndarray, dist: np.ndarray):
         self.images = images
         self.image_paths = image_paths
         self.K = K.astype(np.float64)
         self.dist = np.asarray(dist, dtype=np.float64).ravel()
-        self.board_estimator = board_estimator
+        self.ground_pose_provider = ground_pose_provider
         self.tracker = PointTracker()
 
         # 标定板PnP结果
@@ -309,31 +227,28 @@ class AircraftTriangulationGUI:
 
     # ------------------------------------------------------------------
     def process_all_boards(self):
-        """对所有图像做标定板PnP。"""
+        """Load ground poses from stage 2 output for all images."""
         print("\n" + "="*60)
-        print("Step 1: Board PnP (solving camera pose for each image)")
+        print("Step 1: Loading ground poses (Stage 2 C_T_G)")
         print("="*60)
-        for i, img in enumerate(self.images):
-            G_R_C, G_t_C, rmse, rvec, tvec = self.board_estimator.process_image(img)
+        for i, img_path in enumerate(self.image_paths):
+            stem = Path(img_path).stem
+            G_R_C, G_t_C, rmse, rvec, tvec = self.ground_pose_provider.get_pose(stem)
             ok = G_R_C is not None
             self.poses.append({
                 'G_R_C': G_R_C, 'G_t_C': G_t_C, 'rmse': rmse,
                 'rvec': rvec, 'tvec': tvec
             })
             self.valids.append(ok)
-            status = f"RMSE={rmse:.2f}px" if ok else "FAIL"
-            # Mark frames with insane RMSE as invalid (wrong large circle identification)
-            if ok and rmse > 50.0:
-                ok = False
-                self.valids[i] = False
-                status = f"REJECTED (RMSE={rmse:.1f}px > 50, wrong large circles)"
-            name = Path(self.image_paths[i]).name if i < len(self.image_paths) else f"img{i}"
+            status = f"RMSE={rmse:.2f}px" if ok else "NO_POSE"
+            name = Path(img_path).name
             print(f"  [{i}] {name}: {status}")
 
         n_ok = sum(self.valids)
         print(f"  Valid: {n_ok}/{len(self.images)}")
         if n_ok < 3:
             print("  WARNING: Valid images < 3, triangulation may fail")
+            print("  Make sure you ran stage 2 (estimate_ground_pose.py) for all images")
 
     # ------------------------------------------------------------------
     def register_point_names(self, preset_names: Optional[List[str]] = None):
@@ -1049,9 +964,12 @@ class AircraftTriangulationGUI:
             'coordinate_system': 'G',
             'unit': 'mm',
             'method': 'Multi-view triangulation + Huber BA refinement',
-            'origin': 'Board origin',
+            'origin': 'Ground coordinate system (G) defined by measured ground markers',
             'point_count': len(self.points3d),
-            'note': (f'Generated from {sum(self.valids)} valid images. '
+            'generated_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'note': (f'Generated from {sum(self.valids)} valid ground-pose images. '
+                     f'G-frame defined by physically measured ground markers '
+                     f'(not calibration board). '
                      f'Refined with Huber-loss nonlinear least squares. '
                      f'Z not forced to zero.'),
             'points': {}
@@ -1123,26 +1041,24 @@ class AircraftTriangulationGUI:
 def main():
     import argparse
     p = argparse.ArgumentParser(
-        description='Multi-view triangulation of aircraft marker 3D coordinates (v2)')
-    p.add_argument('images', nargs='+', help='Image sequence with board + aircraft in frame')
+        description='Multi-view triangulation of aircraft marker 3D coordinates (v3)')
+    p.add_argument('images', nargs='+', help='Image sequence with aircraft markers in frame')
     p.add_argument('--config', default='configs/experiment_config.yaml',
                    help='Camera calibration config file')
-    p.add_argument('--output', '-o', default='configs/aircraft_points_measured.yaml',
-                   help='Output YAML path')
+    p.add_argument('--ground-poses', required=True,
+                   help='Stage 2 ground poses JSON (stage_02_ground_poses.json)')
+    p.add_argument('--output', '-o', default='configs/aircraft_points_G.yaml',
+                   help='Output YAML path (G-frame points)')
     p.add_argument('--point-names', nargs='+',
                    help='Preset marker point names (e.g. nose_tip left_wing right_wing ...)')
     p.add_argument('--labels', help='Existing labels file for first frame (YAML, skip labeling step)')
     p.add_argument('--max-error', type=float, default=10.0,
                    help='Outlier view reprojection error threshold (px)')
-    p.add_argument('--threshold', type=float, default=0.0,
-                   help='Large circle detection threshold (0=auto-tune)')
-    p.add_argument('--blob', action='store_true',
-                   help='Use blob detector for board circles (recommended for 25mm)')
     args = p.parse_args()
 
     os.makedirs('output', exist_ok=True)
 
-    # 读配置
+    # 读相机配置
     with open(args.config, encoding='utf-8') as f:
         exp = yaml.safe_load(f)
     cal = exp['calibration']
@@ -1167,16 +1083,16 @@ def main():
     if len(images) < 3:
         print("Need at least 3 images (5-7 recommended)"); sys.exit(1)
 
-    # 初始化
-    board_est = BoardPoseEstimator(K, dist, large_thresh=args.threshold,
-                                    use_blob=True)  # CC detector
-    gui = AircraftTriangulationGUI(images, image_paths, board_est, K, dist)
+    # 初始化 — 使用阶段2的地面位姿
+    ground_provider = GroundPoseProvider(args.ground_poses)
+    gui = AircraftTriangulationGUI(images, image_paths, ground_provider, K, dist)
 
-    # 步骤1: 标定板PnP
+    # 步骤1: 加载地面位姿
     gui.process_all_boards()
     if sum(gui.valids) < 3:
         print("Valid images < 3, triangulation cannot proceed")
-        print("Please check: is the calibration board clearly visible in every photo?")
+        print("Please check: do all images have stage 2 ground poses?")
+        print(f"  Run: python tools/estimate_ground_pose.py --images ... --config ...")
         sys.exit(1)
 
     # 步骤2: 注册标志点名称
@@ -1206,13 +1122,10 @@ def main():
     # 步骤7: 导出 (含刚体检查)
     if gui.points3d:
         gui.export_yaml(args.output)
-        # 复制到标准位置
-        import shutil
-        shutil.copy(args.output, 'configs/aircraft_points.yaml')
-        print("Updated configs/aircraft_points.yaml")
     else:
         print("\nTriangulation failed, no valid 3D points output.")
-        print("Possible causes: insufficient observations, large board PnP error, point matching errors")
+        print("Possible causes: insufficient observations, ground pose errors, "
+              "point matching errors")
 
 
 if __name__ == '__main__':

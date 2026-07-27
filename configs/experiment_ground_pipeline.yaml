@@ -1,0 +1,74 @@
+# Experiment configuration for the ground-coordinate pipeline.
+#
+# This config drives the 4-stage pipeline:
+#   1. Camera intrinsic calibration
+#   2. Ground G-frame calibration (C_T_G per image)
+#   3. Aircraft marker 3D triangulation + B-frame construction
+#   4. Aircraft pose estimation + repeatability evaluation
+#
+# All thresholds and file paths are configurable — no need to
+# modify code to re-run an experiment.
+
+# --- Session ---
+session: "experiment_01"
+output_dir: "output/experiment_01"
+
+# --- Stage 1: Camera intrinsics ---
+stage_01:
+  enabled: true
+  camera_config: "configs/cameras/camera_25mm.yaml"
+  calibration_images: []   # fill in glob patterns or paths
+  circle_interval_mm: 25
+  smooth: false
+  max_rms_px: 2.0          # quality gate: overall calibration RMS
+
+# --- Stage 2: Ground G-frame calibration ---
+stage_02:
+  enabled: true
+  ground_markers_3d: "configs/ground_markers_G.yaml"
+  ground_annotation_dir: "annotations/ground_2d"
+  ground_view_images: []   # fill in
+  ransac_threshold_px: 2.0
+  ransac_confidence: 0.99
+  ransac_iterations: 200
+  min_inliers: 4
+  max_rmse_px: 3.0         # quality gate: per-frame PnP RMSE
+
+# --- Stage 3: Aircraft 3D triangulation ---
+stage_03:
+  enabled: true
+  triangulation_images: []  # fill in
+  aircraft_point_names:
+    - 机舱顶
+    - 左翼尖
+    - 右翼尖
+    - 机脊中部
+    - 左横尾翼尖
+    - 右横尾翼尖
+    - 左竖尾翼尖
+    - 右竖尾翼尖
+  max_reprojection_error_px: 10.0
+  min_observations_per_point: 3
+  min_triangulation_angle_deg: 5.0
+  # B-frame reference point mapping (Chinese → role)
+  b_frame_nose: "机舱顶"
+  b_frame_left_wing: "左翼尖"
+  b_frame_right_wing: "右翼尖"
+  b_frame_spine: "机脊中部"
+  b_frame_left_tail: "左横尾翼尖"
+  b_frame_right_tail: "右横尾翼尖"
+
+# --- Stage 4: Pose estimation ---
+stage_04:
+  enabled: true
+  pose_images: []           # fill in
+  annotation_dir: "annotations/aircraft_2d"
+  aircraft_3d_B: "configs/aircraft_points_B.yaml"
+  aircraft_pnp_ransac_threshold_px: 3.0
+  aircraft_pnp_min_inliers: 6
+  aircraft_pnp_min_inlier_ratio: 0.75
+
+# --- Repeatability ---
+repeatability:
+  max_ground_rmse_px: 3.0
+  max_aircraft_rmse_px: 5.0
