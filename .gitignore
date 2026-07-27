@@ -16,6 +16,7 @@ Thumbs.db
 
 # Generated output (debug images, test outputs, pipeline results)
 output/
+output_old/
 *.npz
 *.json
 !config.example.json
