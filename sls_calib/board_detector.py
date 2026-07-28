@@ -26,6 +26,7 @@ class BoardDetector:
 
     def __init__(self,
                  threshold: int = 40,
+                 use_adaptive: bool = True,
                  min_area: float = 100,
                  max_area: float = 20000,
                  min_side: float = 8,
@@ -33,12 +34,123 @@ class BoardDetector:
                  min_aspect: float = 0.35,
                  max_aspect: float = 2.85):
         self.threshold = threshold
+        self.use_adaptive = use_adaptive
         self.min_area = min_area
         self.max_area = max_area
         self.min_side = min_side
         self.max_side = max_side
         self.min_aspect = min_aspect
         self.max_aspect = max_aspect
+
+    def _subpixel_refine(self, gray: np.ndarray, cx: float, cy: float,
+                         cc_area: float, win: int = 31
+                         ) -> Tuple[float, float, float]:
+        """SLS sub-pixel refinement on a local ROI around CC centroid.
+
+        Extracts ROI → Canny edges → contour nearest center →
+        Sobel gradient sub-pixel refinement → ellipse fit.
+        Falls back to CC centroid if refinement fails.
+
+        Returns (refined_x, refined_y, ellipse_area).
+        """
+        h, w = gray.shape[:2]
+        half = win // 2
+        x0 = max(0, int(cx) - half)
+        y0 = max(0, int(cy) - half)
+        x1 = min(w, int(cx) + half)
+        y1 = min(h, int(cy) + half)
+
+        if x1 - x0 < 10 or y1 - y0 < 10:
+            return float(cx), float(cy), cc_area
+
+        roi = gray[y0:y1, x0:x1]
+
+        # Canny edges in ROI
+        edge = cv2.Canny(roi, 20, 60, 3)
+        contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+
+        if not contours:
+            return float(cx), float(cy), cc_area
+
+        # Find contour closest to the ROI center
+        roi_cx, roi_cy = cx - x0, cy - y0
+        best_contour = None
+        best_dist = float('inf')
+        for cnt in contours:
+            if len(cnt) < 5:
+                continue
+            area_c = abs(cv2.contourArea(cnt))
+            if area_c < 20:
+                continue
+            # Distance from contour moments to ROI center
+            M = cv2.moments(cnt)
+            if M['m00'] > 0:
+                cnt_cx = M['m10'] / M['m00']
+                cnt_cy = M['m01'] / M['m00']
+                d = math.hypot(cnt_cx - roi_cx, cnt_cy - roi_cy)
+                if d < best_dist and d < half:
+                    best_dist = d
+                    best_contour = cnt
+
+        if best_contour is None:
+            return float(cx), float(cy), cc_area
+
+        # Sobel gradients on the ROI (for sub-pixel refinement)
+        sobel_x = cv2.Sobel(roi, cv2.CV_32F, 1, 0, ksize=1)
+        sobel_y = cv2.Sobel(roi, cv2.CV_32F, 0, 1, ksize=1)
+
+        # Sub-pixel refinement of contour points
+        subpixel_pts = []
+        for pt in best_contour:
+            px, py = int(pt[0][0]), int(pt[0][1])
+            if px < 2 or py < 2 or px >= (x1-x0) - 2 or py >= (y1-y0) - 2:
+                continue
+            # SLS subpixelFit: sample Sobel along gradient direction
+            diff_x = float(sobel_x[py, px])
+            diff_y = float(sobel_y[py, px])
+            angle = math.degrees(math.atan2(diff_y, diff_x))
+            sum_wx, sum_wy, sum_x, sum_y = 0.0, 0.0, 0.0, 0.0
+            if (45 < angle < 135) or (-135 < angle < -45):
+                # Vertical sampling
+                sy0 = max(0, py - 2)
+                sy1 = min(y1 - y0, py + 3)
+                for sy in range(sy0, sy1):
+                    sx_v = float(sobel_x[sy, px])
+                    sy_v = float(sobel_y[sy, px])
+                    sum_x += sx_v * (sy - py)
+                    sum_y += sy_v * (sy - py)
+                    sum_wx += sx_v
+                    sum_wy += sy_v
+            else:
+                # Horizontal sampling
+                sx0 = max(0, px - 2)
+                sx1 = min(x1 - x0, px + 3)
+                for sx in range(sx0, sx1):
+                    sx_v = float(sobel_x[py, sx])
+                    sy_v = float(sobel_y[py, sx])
+                    sum_x += sx_v * (sx - px)
+                    sum_y += sy_v * (sx - px)
+                    sum_wx += sx_v
+                    sum_wy += sy_v
+            if sum_wx != 0 and sum_wy != 0:
+                delta_x = sum_x / sum_wx
+                delta_y = sum_y / sum_wy
+                if delta_x**2 + delta_y**2 < 1.0:
+                    subpixel_pts.append([px + delta_x, py + delta_y])
+
+        if len(subpixel_pts) < 5:
+            return float(cx), float(cy), cc_area
+
+        # Fit ellipse to sub-pixel points
+        pts_arr = np.array(subpixel_pts, dtype=np.float32)
+        try:
+            ellipse = cv2.fitEllipse(pts_arr)
+            refined_x = float(x0 + ellipse[0][0])
+            refined_y = float(y0 + ellipse[0][1])
+            ell_area = float(ellipse[1][0] * ellipse[1][1])
+            return refined_x, refined_y, ell_area
+        except cv2.error:
+            return float(cx), float(cy), cc_area
 
     def detect(self, image: np.ndarray,
                debug: bool = False,
@@ -76,9 +188,17 @@ class BoardDetector:
         # --- Step 1: Gaussian blur -----------------------------------------
         smoothed = cv2.GaussianBlur(gray, (3, 3), 0.0)
 
-        # --- Step 2: Fixed threshold → binary mask -------------------------
-        _, mask = cv2.threshold(smoothed, self.threshold, 255,
-                                cv2.THRESH_BINARY)
+        # --- Step 2: Threshold → binary mask ---------------------------------
+        if self.use_adaptive:
+            block_size = max(11, min(width, height) // 15)
+            if block_size % 2 == 0:
+                block_size += 1
+            mask = cv2.adaptiveThreshold(smoothed, 255,
+                                          cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                          cv2.THRESH_BINARY, block_size, -8)
+        else:
+            _, mask = cv2.threshold(smoothed, self.threshold, 255,
+                                    cv2.THRESH_BINARY)
 
         # --- Step 3: Connected components ----------------------------------
         n_labels, labels, stats, centroids = \
@@ -112,11 +232,10 @@ class BoardDetector:
             if aspect < self.min_aspect or aspect > self.max_aspect:
                 continue
 
-            # Center = component centroid
-            cx = centroids[i, 0]
-            cy = centroids[i, 1]
-
-            markers.append(((float(cx), float(cy)), float(area)))
+            # Sub-pixel refinement via local SLS pipeline
+            cx_sp, cy_sp, sp_area = self._subpixel_refine(
+                gray, centroids[i, 0], centroids[i, 1], float(area))
+            markers.append(((cx_sp, cy_sp), sp_area))
 
         # --- Step 5: Deduplicate by centroid proximity ---------------------
         markers.sort(key=lambda x: -x[1])  # largest first
