@@ -39,3 +39,5 @@ data/calibrationNew/
 data/*/
 data/*/_blur/
 *.zip
+data/*.rar
+data/*.zip
